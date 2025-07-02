@@ -43,7 +43,7 @@ export default function Leaderboard() {
         console.log(`Found ${validProfiles.length} valid profiles out of ${profiles.length} total`);
 
         // Target specific market ID
-        const targetMarketId = 35;
+        const targetMarketId = 57;
         console.log(`Targeting market ID: ${targetMarketId}`);
 
         // Get the specific market to verify it exists
