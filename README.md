@@ -220,6 +220,9 @@ Uses Constant Product Market Maker (CPMM) algorithm to determine prices:
 
 ## Development Status
 
+### July 14, 2025
+- Add analytics page
+
 ### July 6, 2025
 - Update FRED data page
 
