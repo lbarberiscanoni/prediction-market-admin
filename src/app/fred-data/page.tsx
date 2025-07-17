@@ -2,6 +2,7 @@
 
 import { useState, useEffect } from "react";
 import Navbar from "@/components/navbar";
+import AddIndicatorMarket from "@/components/AddIndicatorMarket";
 
 interface EconomicSeries {
   id: string;
@@ -39,19 +40,25 @@ export default function FREDDataPage() {
 
     try {
       console.log('Fetching FRED data from /api/fred...');
+      
       const response = await fetch('/api/fred', {
         method: 'GET',
         headers: {
           'Content-Type': 'application/json',
         },
+        cache: 'no-store' // Ensure we get fresh data
       });
       
       console.log('Response status:', response.status);
-      console.log('Response headers:', response.headers);
+      console.log('Response URL:', response.url);
       
       if (!response.ok) {
         const responseText = await response.text();
         console.error('Error response:', responseText);
+        
+        if (response.status === 404) {
+          throw new Error('FRED API route not found. Make sure src/app/api/fred/route.ts exists.');
+        }
         
         try {
           const errorData = JSON.parse(responseText);
@@ -213,10 +220,22 @@ export default function FREDDataPage() {
                     </span>
                   </div>
 
-                  {/* Right section - Metadata */}
+                  {/* Right section - Metadata and Actions */}
                   <div className="flex flex-col lg:items-end text-sm text-gray-400 gap-1">
-                    <p><span className="text-gray-500">Period:</span> {item.period}</p>
-                    <p><span className="text-gray-500">Updated:</span> {new Date(item.lastUpdated).toLocaleDateString()}</p>
+                    <div className="flex flex-col gap-1 mb-3">
+                      <p><span className="text-gray-500">Period:</span> {item.period}</p>
+                      <p><span className="text-gray-500">Updated:</span> {new Date(item.lastUpdated).toLocaleDateString()}</p>
+                    </div>
+                    
+                    {/* Add Market Button */}
+                    <div className="w-full lg:w-auto">
+                      <AddIndicatorMarket 
+                        indicator={item}
+                        onMarketCreated={(marketId) => {
+                          console.log(`Market created with ID: ${marketId}`);
+                        }}
+                      />
+                    </div>
                   </div>
                 </div>
               </div>
