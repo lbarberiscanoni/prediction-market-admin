@@ -35,7 +35,7 @@ export default function AddIndicatorMarket({ indicator, onMarketCreated }: AddIn
     setSuccess(null);
 
     try {
-      console.log("Starting market creation for indicator:", indicator.id);
+      console.log("Starting test market creation for indicator:", indicator.id);
       
       // Get current user
       const { data: { user }, error: userError } = await supabase.auth.getUser();
@@ -56,7 +56,7 @@ export default function AddIndicatorMarket({ indicator, onMarketCreated }: AddIn
       console.log("Generated market name:", marketName);
       console.log("Generated description:", description);
       
-      // Create the market in test_markets table
+      // Create the market in test_markets table (CHANGED FROM markets)
       const marketInsertData = {
         creator_id: user.id,
         name: marketName,
@@ -67,22 +67,22 @@ export default function AddIndicatorMarket({ indicator, onMarketCreated }: AddIn
         created_at: new Date().toISOString()
       };
       
-      console.log("Inserting market data:", marketInsertData);
+      console.log("Inserting test market data:", marketInsertData);
       
       const { data: marketData, error: marketError } = await supabase
-        .from("markets")
+        .from("test_markets") // CHANGED FROM "markets"
         .insert(marketInsertData)
         .select()
         .single();
 
       if (marketError) {
-        console.error("Market creation error:", marketError);
+        console.error("Test market creation error:", marketError);
         throw marketError;
       }
       
-      console.log("Market created successfully:", marketData);
+      console.log("Test market created successfully:", marketData);
 
-      // Create binary outcomes for the market
+      // Create binary outcomes for the test market
       const outcomes = generateOutcomes(indicator);
       console.log("Generated outcomes:", outcomes);
       
@@ -94,20 +94,20 @@ export default function AddIndicatorMarket({ indicator, onMarketCreated }: AddIn
         created_at: new Date().toISOString()
       }));
       
-      console.log("Inserting outcomes data:", outcomesInsertData);
+      console.log("Inserting test outcomes data:", outcomesInsertData);
       
       const { error: outcomesError } = await supabase
-        .from("test_outcomes")
+        .from("test_outcomes") // This was already correct
         .insert(outcomesInsertData);
 
       if (outcomesError) {
-        console.error("Outcomes creation error:", outcomesError);
+        console.error("Test outcomes creation error:", outcomesError);
         throw outcomesError;
       }
       
-      console.log("Outcomes created successfully");
+      console.log("Test outcomes created successfully");
 
-      setSuccess(`Market "${marketName}" created successfully!`);
+      setSuccess(`Test market "${marketName}" created successfully!`);
       
       if (onMarketCreated) {
         onMarketCreated(marketData.id);
@@ -117,10 +117,10 @@ export default function AddIndicatorMarket({ indicator, onMarketCreated }: AddIn
       setTimeout(() => setSuccess(null), 3000);
 
     } catch (err) {
-      console.error("Error creating market:", err);
+      console.error("Error creating test market:", err);
       console.error("Error details:", JSON.stringify(err, null, 2));
       
-      let errorMessage = "Failed to create market";
+      let errorMessage = "Failed to create test market";
       
       if (err && typeof err === 'object') {
         // Handle Supabase errors
@@ -204,7 +204,7 @@ export default function AddIndicatorMarket({ indicator, onMarketCreated }: AddIn
         disabled={loading}
         className="px-3 py-2 bg-green-600 hover:bg-green-700 disabled:bg-gray-600 disabled:cursor-not-allowed rounded-lg text-white font-medium transition-colors text-sm"
       >
-        {loading ? "Creating..." : "Create Market"}
+        {loading ? "Creating..." : "Create Test Market"}
       </button>
       
       {error && (
