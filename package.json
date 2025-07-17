@@ -17,6 +17,7 @@
     "openai": "^4.80.0",
     "react": "^19.0.0-rc-69d4b800-20241021",
     "react-dom": "^19.0.0-rc-69d4b800-20241021",
+    "recharts": "^2.12.7",
     "vercel-rust": "^4.0.8"
   },
   "devDependencies": {
