@@ -130,7 +130,6 @@ export default function AnalyticsPage() {
 
   const generateActiveUsersData = (predictions: Prediction[], startDate: Date, endDate: Date) => {
     const data = [];
-    const interval = getDataInterval();
     const current = new Date(startDate);
     const cumulativeActiveUsers = new Set<string>();
 
@@ -181,7 +180,6 @@ export default function AnalyticsPage() {
 
   const generateUserGrowthData = (users: User[], startDate: Date, endDate: Date) => {
     const data = [];
-    const interval = getDataInterval();
     const current = new Date(startDate);
     let cumulativeUsers = 0;
 
@@ -276,10 +274,6 @@ export default function AnalyticsPage() {
     }
 
     return data;
-  };
-
-  const getDataInterval = () => {
-    return timeFilter;
   };
 
   const formatDateForDisplay = (date: Date) => {
