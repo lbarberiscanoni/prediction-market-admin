@@ -1,0 +1,97 @@
+name: Daily FRED Data Check
+
+on:
+  schedule:
+    # Run daily at 6:00 AM UTC (adjust timezone as needed)
+    - cron: '0 6 * * *'
+  
+  # Allow manual triggering for testing
+  workflow_dispatch:
+    inputs:
+      days_ahead:
+        description: 'Days ahead to check'
+        required: false
+        default: '14'
+        type: string
+      create_markets:
+        description: 'Create markets'
+        required: false
+        default: true
+        type: boolean
+
+jobs:
+  fred-check:
+    name: Check FRED Data & Create Markets
+    runs-on: ubuntu-latest
+    
+    steps:
+      - name: 🔍 Check FRED Data
+        id: fred-check
+        run: |
+          echo "Checking FRED data for releases..."
+          
+          # Set parameters (use manual input or defaults)
+          DAYS_AHEAD="${{ github.event.inputs.days_ahead || '1' }}"
+          CREATE_MARKETS="${{ github.event.inputs.create_markets || 'true' }}"
+          
+          # Call your Supabase Edge Function
+          response=$(curl -s -w "\n%{http_code}" -X POST \
+            "${{ secrets.SUPABASE_URL }}/functions/v1/get-fred-data" \
+            -H "Authorization: Bearer ${{ secrets.SUPABASE_ANON_KEY }}" \
+            -H "Content-Type: application/json" \
+            -d '{
+              "days_ahead": '$DAYS_AHEAD',
+              "create_markets": '$CREATE_MARKETS',
+              "jwt_token": "${{ secrets.SUPABASE_ANON_KEY }}",
+              "supabase_project_url": "${{ secrets.SUPABASE_URL }}"
+            }')
+          
+          # Extract HTTP status code and response body
+          http_code=$(echo "$response" | tail -n1)
+          response_body=$(echo "$response" | head -n -1)
+          
+          echo "HTTP Status: $http_code"
+          echo "Response: $response_body"
+          
+          # Check if request was successful
+          if [ "$http_code" -eq 200 ]; then
+            echo "✅ FRED check completed successfully"
+            
+            # Extract summary info for the next step
+            releases_found=$(echo "$response_body" | jq -r '.summary.releases_found_on_target_date // 0')
+            markets_created=$(echo "$response_body" | jq -r '.database_operations.markets_created // 0')
+            target_date=$(echo "$response_body" | jq -r '.summary.target_date // "unknown"')
+            
+            echo "releases_found=$releases_found" >> $GITHUB_OUTPUT
+            echo "markets_created=$markets_created" >> $GITHUB_OUTPUT
+            echo "target_date=$target_date" >> $GITHUB_OUTPUT
+            echo "success=true" >> $GITHUB_OUTPUT
+          else
+            echo "❌ FRED check failed with status $http_code"
+            echo "success=false" >> $GITHUB_OUTPUT
+            exit 1
+          fi
+
+      - name: 📊 Report Results
+        if: always()
+        run: |
+          if [ "${{ steps.fred-check.outputs.success }}" = "true" ]; then
+            echo "📅 **Daily FRED Check Results**"
+            echo "- Target Date: ${{ steps.fred-check.outputs.target_date }}"
+            echo "- Releases Found: ${{ steps.fred-check.outputs.releases_found }}"
+            echo "- Markets Created: ${{ steps.fred-check.outputs.markets_created }}"
+            
+            if [ "${{ steps.fred-check.outputs.releases_found }}" -gt 0 ]; then
+              echo "🎯 Created ${{ steps.fred-check.outputs.markets_created }} new prediction markets!"
+            else
+              echo "📭 No releases scheduled for target date"
+            fi
+          else
+            echo "💥 FRED check failed - check logs above"
+          fi
+
+      - name: 🚨 Notify on Failure
+        if: failure()
+        run: |
+          echo "::error::Daily FRED check failed. Check the logs for details."
+          # You can add Slack/Discord notifications here if needed

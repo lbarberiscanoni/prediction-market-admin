@@ -58,6 +58,7 @@ export default function AnalyticsPage() {
   const [loading, setLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
   const [timeFilter, setTimeFilter] = useState<TimeFilter>("monthly");
+  const [debugMode, setDebugMode] = useState<boolean>(false);
 
   useEffect(() => {
     fetchAnalyticsData();
@@ -74,6 +75,15 @@ export default function AnalyticsPage() {
 
     const daysBack = ranges[timeFilter];
     const startDate = new Date(now.getTime() - daysBack * 24 * 60 * 60 * 1000);
+    
+    if (debugMode) {
+      console.log('=== DATE RANGE DEBUG ===');
+      console.log('Time filter:', timeFilter);
+      console.log('Days back:', daysBack);
+      console.log('Start date:', startDate.toISOString());
+      console.log('End date:', now.toISOString());
+    }
+    
     return { startDate, endDate: now };
   };
 
@@ -98,12 +108,32 @@ export default function AnalyticsPage() {
         .from("predictions")
         .select("user_id, market_id, outcome_id, shares_amt, trade_value, created_at")
         .gte("created_at", startDate.toISOString())
-        .lte("created_at", endDate.toISOString());
+        .lte("created_at", endDate.toISOString())
+        .order("created_at", { ascending: true });
 
       if (predictionsError) throw new Error(`Failed to fetch predictions: ${predictionsError.message}`);
 
       const totalPredictions = predictionsData?.length || 0;
       const totalTradeVolume = predictionsData?.reduce((sum, p) => sum + Math.abs(p.trade_value || 0), 0) || 0;
+
+      if (debugMode) {
+        console.log('=== FETCHED DATA DEBUG ===');
+        console.log('Total users:', totalUsers);
+        console.log('Total predictions in range:', totalPredictions);
+        console.log('Total trade volume:', totalTradeVolume);
+        console.log('Sample predictions:', predictionsData?.slice(0, 3));
+        
+        if (predictionsData && predictionsData.length > 0) {
+          const dates = predictionsData.map(p => new Date(p.created_at));
+          console.log('Prediction date range:', {
+            earliest: new Date(Math.min(...dates.map(d => d.getTime()))).toISOString(),
+            latest: new Date(Math.max(...dates.map(d => d.getTime()))).toISOString()
+          });
+          
+          const uniqueUsers = [...new Set(predictionsData.map(p => p.user_id))];
+          console.log('Unique users in predictions:', uniqueUsers.length, uniqueUsers.slice(0, 3));
+        }
+      }
 
       // Generate time series data
       const activeUsersData = generateActiveUsersData(predictionsData || [], startDate, endDate);
@@ -129,50 +159,109 @@ export default function AnalyticsPage() {
   };
 
   const generateActiveUsersData = (predictions: Prediction[], startDate: Date, endDate: Date) => {
+    if (debugMode) {
+      console.log('=== ACTIVE USERS GENERATION DEBUG ===');
+      console.log('Input predictions:', predictions.length);
+      console.log('Date range:', startDate.toISOString(), 'to', endDate.toISOString());
+      console.log('Time filter:', timeFilter);
+    }
+
     const data = [];
-    const current = new Date(startDate);
     const cumulativeActiveUsers = new Set<string>();
 
-    while (current <= endDate) {
-      const periodEnd = new Date(current);
-      
-      // Set the end of the current period
-      if (timeFilter === "daily") {
-        periodEnd.setDate(current.getDate() + 1);
-      } else if (timeFilter === "weekly") {
-        periodEnd.setDate(current.getDate() + 7);
-      } else if (timeFilter === "monthly") {
-        periodEnd.setMonth(current.getMonth() + 1);
-      } else {
-        periodEnd.setDate(current.getDate() + 30); // All time grouped by month
-      }
+    if (timeFilter === "monthly") {
+      // Use calendar months for monthly view
+      const current = new Date(startDate.getFullYear(), startDate.getMonth(), 1);
+      const end = new Date(endDate.getFullYear(), endDate.getMonth() + 1, 0);
 
-      const periodPredictions = predictions.filter(p => {
-        const predDate = new Date(p.created_at);
-        return predDate >= current && predDate < periodEnd;
-      });
+      while (current <= end) {
+        const monthStart = new Date(current.getFullYear(), current.getMonth(), 1);
+        const monthEnd = new Date(current.getFullYear(), current.getMonth() + 1, 0, 23, 59, 59, 999);
 
-      const activeUsersInPeriod = new Set(periodPredictions.map(p => p.user_id));
-      
-      // Add to cumulative set
-      activeUsersInPeriod.forEach(userId => cumulativeActiveUsers.add(userId));
+        if (debugMode) {
+          console.log('Processing month:', {
+            monthStart: monthStart.toISOString(),
+            monthEnd: monthEnd.toISOString(),
+            isCurrentMonth: monthStart.getMonth() === new Date().getMonth() && 
+                            monthStart.getFullYear() === new Date().getFullYear()
+          });
+        }
 
-      data.push({
-        date: formatDateForDisplay(current),
-        active_users: activeUsersInPeriod.size,
-        cumulative_users: cumulativeActiveUsers.size
-      });
+        const monthPredictions = predictions.filter(p => {
+          const predDate = new Date(p.created_at);
+          return predDate >= monthStart && predDate <= monthEnd;
+        });
 
-      // Move to next period
-      if (timeFilter === "daily") {
-        current.setDate(current.getDate() + 1);
-      } else if (timeFilter === "weekly") {
-        current.setDate(current.getDate() + 7);
-      } else if (timeFilter === "monthly") {
+        const activeUsersInMonth = new Set(monthPredictions.map(p => p.user_id));
+        
+        if (debugMode) {
+          console.log('Month results:', {
+            predictionsCount: monthPredictions.length,
+            activeUsers: activeUsersInMonth.size,
+            userIds: [...activeUsersInMonth].slice(0, 3)
+          });
+        }
+
+        // Add to cumulative set
+        activeUsersInMonth.forEach(userId => cumulativeActiveUsers.add(userId));
+
+        data.push({
+          date: formatDateForDisplay(monthStart),
+          active_users: activeUsersInMonth.size,
+          cumulative_users: cumulativeActiveUsers.size
+        });
+
+        // Move to next month
         current.setMonth(current.getMonth() + 1);
-      } else {
-        current.setDate(current.getDate() + 30);
       }
+    } else {
+      // Original logic for other time filters
+      const current = new Date(startDate);
+
+      while (current <= endDate) {
+        const periodEnd = new Date(current);
+        
+        // Set the end of the current period
+        if (timeFilter === "daily") {
+          periodEnd.setDate(current.getDate() + 1);
+        } else if (timeFilter === "weekly") {
+          periodEnd.setDate(current.getDate() + 7);
+        } else {
+          periodEnd.setDate(current.getDate() + 30); // All time grouped by month
+        }
+
+        const periodPredictions = predictions.filter(p => {
+          const predDate = new Date(p.created_at);
+          return predDate >= current && predDate < periodEnd;
+        });
+
+        const activeUsersInPeriod = new Set(periodPredictions.map(p => p.user_id));
+        
+        // Add to cumulative set
+        activeUsersInPeriod.forEach(userId => cumulativeActiveUsers.add(userId));
+
+        data.push({
+          date: formatDateForDisplay(current),
+          active_users: activeUsersInPeriod.size,
+          cumulative_users: cumulativeActiveUsers.size
+        });
+
+        // Move to next period
+        if (timeFilter === "daily") {
+          current.setDate(current.getDate() + 1);
+        } else if (timeFilter === "weekly") {
+          current.setDate(current.getDate() + 7);
+        } else {
+          current.setDate(current.getDate() + 30);
+        }
+      }
+    }
+
+    if (debugMode) {
+      console.log('=== FINAL ACTIVE USERS DATA ===');
+      console.log('Generated data points:', data.length);
+      console.log('Sample data:', data.slice(-3)); // Last 3 entries
+      console.log('Total cumulative users:', cumulativeActiveUsers.size);
     }
 
     return data;
@@ -348,6 +437,23 @@ export default function AnalyticsPage() {
           <p className="text-gray-400">Prophet prediction market platform statistics</p>
         </div>
 
+        {/* Debug Toggle */}
+        <div className="mb-6">
+          <button
+            onClick={() => setDebugMode(!debugMode)}
+            className={`px-3 py-1 rounded text-sm ${
+              debugMode ? "bg-yellow-600 text-white" : "bg-gray-600 text-gray-300"
+            }`}
+          >
+            {debugMode ? "Disable Debug" : "Enable Debug"}
+          </button>
+          {debugMode && (
+            <p className="text-yellow-400 text-sm mt-1">
+              Debug mode enabled - check browser console for detailed logs
+            </p>
+          )}
+        </div>
+
         {/* Time Filter Selector */}
         <div className="mb-6">
           <div className="flex gap-2">
@@ -402,6 +508,13 @@ export default function AnalyticsPage() {
         {/* Active Users Chart */}
         <div className="bg-gray-900 rounded-lg p-6 border border-gray-800 mb-8">
           <h3 className="text-lg font-semibold mb-4">Active Users Over Time</h3>
+          {debugMode && (
+            <div className="mb-4 text-sm text-yellow-400 bg-yellow-900/20 p-2 rounded">
+              Data points: {analyticsData.activeUsersData.length} | 
+              Max active users: {Math.max(...analyticsData.activeUsersData.map(d => d.active_users))} |
+              Total cumulative: {Math.max(...analyticsData.activeUsersData.map(d => d.cumulative_users))}
+            </div>
+          )}
           <div className="h-80">
             <ResponsiveContainer width="100%" height="100%">
               <LineChart data={analyticsData.activeUsersData}>
