@@ -31,7 +31,7 @@ jobs:
           echo "Checking FRED data for releases..."
           
           # Set parameters (use manual input or defaults)
-          DAYS_AHEAD="${{ github.event.inputs.days_ahead || '1' }}"
+          DAYS_AHEAD="${{ github.event.inputs.days_ahead || '14' }}"
           CREATE_MARKETS="${{ github.event.inputs.create_markets || 'true' }}"
           
           # Call your Supabase Edge Function
