@@ -125,18 +125,61 @@ Enum values: `'PayPal'`, `'MTurk'`
 ## Directory map (one-liners)
 | Dir | Role | Notes |
 |---|---|---|
-| `web/` | [UI] Next.js pages/components | UI only; no DB calls |
-| `api/` | [Domain] HTTP handlers & services | Pure business logic |
-| `db/`  | [Data] migrations & seed | Changes must update SCHEMA.md |
-| `scripts/` | [Infra] CLIs & jobs | No app imports |
+| `src/app/` | [UI] Next.js App Router pages | Route handlers & page components |
+| `src/components/` | [UI] Reusable React components | Market cards, forms, charts |
+| `src/lib/` | [Domain] Business logic & utilities | Market makers, predictions, types |
+| `public/` | [Static] Assets & icons | SVG files, static resources |
+| `.github/` | [Infra] CI/CD workflows | FRED data automation |
 
 ## Module catalog (single line per non-trivial file)
 | Path | Role | Key deps | Owner | Tests |
 |---|---|---|---|---|
-| `web/pages/login.tsx` | login UI | `web/components/AuthForm` | @studentA | `login.spec.ts` |
-| `api/routes/auth.ts` | HTTP auth endpoints | `services/auth/*` | @studentB | `auth.routes.spec.ts` |
-| `api/services/auth/reset.ts` | reset token logic | `db/*`, emailer | @studentB | `reset.spec.ts` |
+| `src/app/page.tsx` | Landing page | `components/navbar` | - | - |
+| `src/app/auth/page.tsx` | Auth UI (login/signup) | `supabase/createClient` | - | - |
+| `src/app/auth/callback/route.ts` | OAuth callback handler | `supabase/server-client` | - | - |
+| `src/app/markets/page.tsx` | Markets listing page | `components/MarketsList` | - | - |
+| `src/app/markets/[id]/page.tsx` | Individual market details | `components/TradeForm, PriceChart` | - | - |
+| `src/app/profile/page.tsx` | User profile page | `components/Onboarding` | - | - |
+| `src/app/admin/page.tsx` | Admin dashboard | `components/CreateMarket` | - | - |
+| `src/app/players/page.tsx` | Players listing | `supabase/createClient` | - | - |
+| `src/app/players/[id]/page.tsx` | Individual player details | `supabase/createClient` | - | - |
+| `src/app/payments/page.tsx` | Payment management | `supabase/createClient` | - | - |
+| `src/app/leaderboard/page.tsx` | Leaderboard display | `components/Leaderboard, ActiveUsers` | - | - |
+| `src/app/analytics/page.tsx` | Platform analytics | `recharts, supabase` | - | - |
+| `src/app/fred-data/page.tsx` | FRED economic data viewer | `components/AddIndicatorMarket` | - | - |
+| `src/app/economic_indicators/page.tsx` | Census Bureau data viewer | `Census API` | - | - |
+| `src/app/api/fred/route.ts` | FRED API proxy | `FRED API` | - | - |
+| `src/app/api/test-markets/route.ts` | Test markets CRUD | `supabase/createClient` | - | - |
+| `src/components/MarketCard.tsx` | Market display component | `supabase, Link` | - | - |
+| `src/components/TradeForm.tsx` | Trading interface | `lib/predictions, lib/marketMakers` | - | - |
+| `src/components/PriceChart.tsx` | Market price visualization | `recharts, supabase` | - | - |
+| `src/components/CreateMarket.tsx` | Market creation form | `lib/addMarket, lib/addAnswers` | - | - |
+| `src/components/Leaderboard.tsx` | Leaderboard component | `supabase/createClient` | - | - |
+| `src/components/ActiveUsers.tsx` | Active users display | `lib/getActiveUsers` | - | - |
+| `src/components/MarketsList.tsx` | Markets listing component | `lib/getMarkets, components/MarketCard` | - | - |
+| `src/components/Onboarding.tsx` | User onboarding flow | `supabase/createClient` | - | - |
+| `src/components/navbar.tsx` | Site navigation | `components/logout-button` | - | - |
+| `src/lib/predictions.ts` | Trading logic | `supabase/createClient` | - | - |
+| `src/lib/marketMakers.ts` | Market maker algorithms (CPMM) | None | - | - |
+| `src/lib/addMarket.ts` | Market creation logic | `supabase/createClient` | - | - |
+| `src/lib/getMarkets.ts` | Market data fetching | `supabase/createClient` | - | - |
+| `src/lib/getActiveUsers.ts` | Active user analytics | `supabase/createClient` | - | - |
+| `src/lib/calculateLeaderboard.ts` | Leaderboard calculations | `supabase/createClient` | - | - |
+| `src/lib/supabase/createClient.ts` | Supabase client setup | `@supabase/supabase-js` | - | - |
+| `src/lib/supabase/server-client.ts` | Server-side Supabase client | `@supabase/ssr` | - | - |
+| `src/lib/types.ts` | TypeScript type definitions | None | - | - |
+| `src/lib/tradingTypes.ts` | Trading-specific types | None | - | - |
+| `src/lib/constants.ts` | App-wide constants | None | - | - |
+| `.github/workflows/fred-daily.yml` | Daily FRED data automation | Supabase Edge Functions | - | - |
 
 ## Top flows (human-level)
-1. **Sign in:** `login.tsx` → `auth.ts (POST /login)` → `sessions` table → cookie set  
-2. **Track event:** UI `analytics.ts` → POST `/events` → queue
+1. **User Authentication:** `auth/page.tsx` → Google OAuth → `auth/callback/route.ts` → Supabase session → redirect to dashboard
+2. **Market Trading:** `markets/[id]/page.tsx` → `TradeForm.tsx` → `lib/predictions.ts` → Supabase DB updates → balance & token pool updates
+3. **Market Creation:** `admin/page.tsx` → `CreateMarket.tsx` → `lib/addMarket.ts` → `lib/addAnswers.ts` → Supabase inserts
+4. **Price Discovery:** User trades → `lib/marketMakers.ts` (CPMM) → token pool updates → `PriceChart.tsx` visualization
+5. **Leaderboard Calculation:** `analytics/page.tsx` → `lib/calculateLeaderboard.ts` → aggregate user P&L → `Leaderboard.tsx` display
+6. **Economic Data Integration:** `fred-data/page.tsx` → `api/fred/route.ts` → FRED API → `AddIndicatorMarket.tsx` → auto-market creation
+7. **Payment Processing:** `payments/page.tsx` → MTurk/PayPal APIs → user balance updates → batch payment handling
+8. **Market Resolution:** Admin selects winning outcome → `predictions.ts` calculates payouts → user balances updated
+9. **Data Analytics:** `analytics/page.tsx` → Supabase queries → `recharts` visualizations → platform metrics display
+10. **Automated Market Creation:** `.github/workflows/fred-daily.yml` → FRED API → Supabase Edge Functions → new markets for economic releases
