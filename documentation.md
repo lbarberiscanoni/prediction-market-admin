@@ -1,11 +1,10 @@
-# Project TODO
+# Prophet V3 TODO
 
 ## Requirements
-- [ ] R-1 Secure auth & sessions
-- [ ] R-2 Event analytics across core flows
+- [ ] PayPal payments
 
 ## Features (grouped by requirement)
-### R-1 Secure auth & sessions
+### R-1 PayPal payments
 - [ ] F-1.1 Login & Signup UI  (issue #123)
   - [ ] Task: form validation + error states  (issue #201)
   - [ ] Task: invite-only signup gate         (issue #202)
@@ -14,16 +13,12 @@
   - [ ] Task: verify + reset pages
 - [ ] F-1.3 Session hardening (SameSite, rotation) (issue #125)
 
-### R-2 Event analytics
-- [ ] F-2.1 Event schema + helpers            (issue #130)
-- [ ] F-2.2 Fire events in flows A/B/C        (issue #131)
-
 ## Backlog (icebox)
 - [ ] “remember me” option
 
 # Architecture
 
-## Custom Types
+## Custom Databse Types
 
 ### Market Status
 Enum values: `'open'`, `'closed'`, `'resolved'`, `'annulled'`, `'pending'`
