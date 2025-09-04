@@ -3,22 +3,15 @@
 
 import { useEffect, useState } from "react";
 import supabase from "@/lib/supabase/createClient";
-import Navbar from "@/components/navbar";
-import {
-  LineChart,
-  Line,
-  XAxis,
-  YAxis,
-  CartesianGrid,
-  Tooltip,
-  ResponsiveContainer,
-  BarChart,
-  Bar
-} from "recharts";
+import MarketStats from "@/components/analytics/MarketStats";
+import MarketActivityCharts from "@/components/analytics/MarketActivityCharts";
+import UserStatistics from "@/components/analytics/UserStatistics";
+import UserActivityCharts from "@/components/analytics/UserActivityCharts";
 
 interface User {
   id: string;
   created_at: string;
+  user_id: string;
 }
 
 interface Prediction {
@@ -30,123 +23,143 @@ interface Prediction {
   created_at: string;
 }
 
-interface AnalyticsData {
-  totalUsers: number;
-  totalPredictions: number;
-  totalTradeVolume: number;
-  activeUsersData: Array<{
-    date: string;
-    active_users: number;
-    cumulative_users: number;
-  }>;
-  userGrowthData: Array<{
-    date: string;
-    new_users: number;
-    cumulative_users: number;
-  }>;
-  predictionVolumeData: Array<{
-    date: string;
-    prediction_count: number;
-    total_volume: number;
-  }>;
+interface Market {
+  id: number;
+  name: string;
+  status: string;
+  created_at: string;
+  token_pool: number;
 }
 
-type TimeFilter = "daily" | "weekly" | "monthly" | "all";
+interface UserStatsData {
+  totalUsers: number;
+  activeTraders: number;
+  traderRatio: number;
+}
+
+interface MarketStatsData {
+  allTime: {
+    markets: number;
+    predictions: number;
+    tradeVolume: number;
+  };
+  open: {
+    markets: number;
+    predictions: number;
+    tradeVolume: number;
+  };
+}
+
+interface UserActivityData {
+  date: string;
+  new_signups: number;
+  cumulative_users: number;
+  new_traders: number;
+  cumulative_traders: number;
+  active_traders: number;
+}
+
+interface MarketActivityData {
+  date: string;
+  predictions: number;
+  markets_created: number;
+  volume: number;
+}
+
+interface AnalyticsData {
+  userStats: UserStatsData;
+  userActivityData: UserActivityData[];
+  marketStats: MarketStatsData;
+  marketActivityData: MarketActivityData[];
+}
 
 export default function AnalyticsPage() {
   const [analyticsData, setAnalyticsData] = useState<AnalyticsData | null>(null);
   const [loading, setLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
-  const [timeFilter, setTimeFilter] = useState<TimeFilter>("monthly");
-  const [debugMode, setDebugMode] = useState<boolean>(false);
+  const [activeView, setActiveView] = useState<'user' | 'market'>('market');
 
   useEffect(() => {
     fetchAnalyticsData();
-  }, [timeFilter]);
-
-  const getDateRange = () => {
-    const now = new Date();
-    const ranges = {
-      daily: 30, // Last 30 days
-      weekly: 84, // Last 12 weeks (84 days)
-      monthly: 365, // Last 12 months (365 days)
-      all: 730 // Last 2 years or all data
-    };
-
-    const daysBack = ranges[timeFilter];
-    const startDate = new Date(now.getTime() - daysBack * 24 * 60 * 60 * 1000);
-    
-    if (debugMode) {
-      console.log('=== DATE RANGE DEBUG ===');
-      console.log('Time filter:', timeFilter);
-      console.log('Days back:', daysBack);
-      console.log('Start date:', startDate.toISOString());
-      console.log('End date:', now.toISOString());
-    }
-    
-    return { startDate, endDate: now };
-  };
+  }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   const fetchAnalyticsData = async () => {
     setLoading(true);
     setError(null);
 
     try {
-      const { startDate, endDate } = getDateRange();
-
-      // Fetch all users (for total count)
-      const { data: allUsersData, error: allUsersError } = await supabase
+      // Fetch all users
+      const { data: usersData, error: usersError } = await supabase
         .from("profiles")
-        .select("id, created_at");
+        .select("id, created_at, user_id");
 
-      if (allUsersError) throw new Error(`Failed to fetch users: ${allUsersError.message}`);
+      if (usersError) throw new Error(`Failed to fetch users: ${usersError.message}`);
 
-      const totalUsers = allUsersData?.length || 0;
+      const totalUsers = usersData?.length || 0;
 
-      // Fetch predictions within date range
-      const { data: predictionsData, error: predictionsError } = await supabase
+      // Fetch all markets (excluding pending markets)
+      const { data: marketsData, error: marketsError } = await supabase
+        .from("markets")
+        .select("id, name, status, created_at, token_pool")
+        .neq("status", "pending");
+
+      if (marketsError) throw new Error(`Failed to fetch markets: ${marketsError.message}`);
+
+      const markets = marketsData as Market[];
+      const totalMarkets = markets.length;
+      const openMarkets = markets.filter(m => m.status === 'open');
+      const openMarketsCount = openMarkets.length;
+
+      // Fetch ALL predictions for market stats calculations
+      const { data: allPredictionsData, error: allPredictionsError } = await supabase
         .from("predictions")
-        .select("user_id, market_id, outcome_id, shares_amt, trade_value, created_at")
-        .gte("created_at", startDate.toISOString())
-        .lte("created_at", endDate.toISOString())
-        .order("created_at", { ascending: true });
+        .select("user_id, market_id, outcome_id, shares_amt, trade_value, created_at");
 
-      if (predictionsError) throw new Error(`Failed to fetch predictions: ${predictionsError.message}`);
+      if (allPredictionsError) throw new Error(`Failed to fetch all predictions: ${allPredictionsError.message}`);
 
-      const totalPredictions = predictionsData?.length || 0;
-      const totalTradeVolume = predictionsData?.reduce((sum, p) => sum + Math.abs(p.trade_value || 0), 0) || 0;
+      const allTimePredictions = allPredictionsData || [];
 
-      if (debugMode) {
-        console.log('=== FETCHED DATA DEBUG ===');
-        console.log('Total users:', totalUsers);
-        console.log('Total predictions in range:', totalPredictions);
-        console.log('Total trade volume:', totalTradeVolume);
-        console.log('Sample predictions:', predictionsData?.slice(0, 3));
-        
-        if (predictionsData && predictionsData.length > 0) {
-          const dates = predictionsData.map(p => new Date(p.created_at));
-          console.log('Prediction date range:', {
-            earliest: new Date(Math.min(...dates.map(d => d.getTime()))).toISOString(),
-            latest: new Date(Math.max(...dates.map(d => d.getTime()))).toISOString()
-          });
-          
-          const uniqueUsers = [...new Set(predictionsData.map(p => p.user_id))];
-          console.log('Unique users in predictions:', uniqueUsers.length, uniqueUsers.slice(0, 3));
+      // Calculate user statistics
+      const uniqueTraders = new Set(allTimePredictions.map(p => p.user_id));
+      const activeTraders = uniqueTraders.size;
+      const traderRatio = totalUsers > 0 ? (activeTraders / totalUsers) * 100 : 0;
+
+      const userStats: UserStatsData = {
+        totalUsers,
+        activeTraders,
+        traderRatio
+      };
+
+      // Calculate market stats
+      const allTimeTradeVolume = allTimePredictions.reduce((sum, p) => sum + Math.abs(p.trade_value || 0), 0);
+
+      // Filter predictions for open markets only
+      const openMarketIds = new Set(openMarkets.map(m => m.id));
+      const openMarketPredictions = allTimePredictions.filter(p => openMarketIds.has(p.market_id));
+      const openMarketTradeVolume = openMarketPredictions.reduce((sum, p) => sum + Math.abs(p.trade_value || 0), 0);
+
+      const marketStats: MarketStatsData = {
+        allTime: {
+          markets: totalMarkets,
+          predictions: allTimePredictions.length,
+          tradeVolume: allTimeTradeVolume
+        },
+        open: {
+          markets: openMarketsCount,
+          predictions: openMarketPredictions.length,
+          tradeVolume: openMarketTradeVolume
         }
-      }
+      };
 
-      // Generate time series data
-      const activeUsersData = generateActiveUsersData(predictionsData || [], startDate, endDate);
-      const userGrowthData = generateUserGrowthData(allUsersData || [], startDate, endDate);
-      const predictionVolumeData = generateVolumeData(predictionsData || [], startDate, endDate);
+      // Generate chart data
+      const userActivityData = generateUserActivityData(usersData || [], allTimePredictions);
+      const marketActivityData = generateMarketActivityData(allTimePredictions, markets);
 
       const analytics: AnalyticsData = {
-        totalUsers,
-        totalPredictions,
-        totalTradeVolume,
-        activeUsersData,
-        userGrowthData,
-        predictionVolumeData
+        userStats,
+        userActivityData,
+        marketStats,
+        marketActivityData
       };
 
       setAnalyticsData(analytics);
@@ -158,242 +171,113 @@ export default function AnalyticsPage() {
     }
   };
 
-  const generateActiveUsersData = (predictions: Prediction[], startDate: Date, endDate: Date) => {
-    if (debugMode) {
-      console.log('=== ACTIVE USERS GENERATION DEBUG ===');
-      console.log('Input predictions:', predictions.length);
-      console.log('Date range:', startDate.toISOString(), 'to', endDate.toISOString());
-      console.log('Time filter:', timeFilter);
-    }
-
-    const data = [];
-    const cumulativeActiveUsers = new Set<string>();
-
-    if (timeFilter === "monthly") {
-      // Use calendar months for monthly view
-      const current = new Date(startDate.getFullYear(), startDate.getMonth(), 1);
-      const end = new Date(endDate.getFullYear(), endDate.getMonth() + 1, 0);
-
-      while (current <= end) {
-        const monthStart = new Date(current.getFullYear(), current.getMonth(), 1);
-        const monthEnd = new Date(current.getFullYear(), current.getMonth() + 1, 0, 23, 59, 59, 999);
-
-        if (debugMode) {
-          console.log('Processing month:', {
-            monthStart: monthStart.toISOString(),
-            monthEnd: monthEnd.toISOString(),
-            isCurrentMonth: monthStart.getMonth() === new Date().getMonth() && 
-                            monthStart.getFullYear() === new Date().getFullYear()
-          });
-        }
-
-        const monthPredictions = predictions.filter(p => {
-          const predDate = new Date(p.created_at);
-          return predDate >= monthStart && predDate <= monthEnd;
-        });
-
-        const activeUsersInMonth = new Set(monthPredictions.map(p => p.user_id));
-        
-        if (debugMode) {
-          console.log('Month results:', {
-            predictionsCount: monthPredictions.length,
-            activeUsers: activeUsersInMonth.size,
-            userIds: [...activeUsersInMonth].slice(0, 3)
-          });
-        }
-
-        // Add to cumulative set
-        activeUsersInMonth.forEach(userId => cumulativeActiveUsers.add(userId));
-
-        data.push({
-          date: formatDateForDisplay(monthStart),
-          active_users: activeUsersInMonth.size,
-          cumulative_users: cumulativeActiveUsers.size
-        });
-
-        // Move to next month
-        current.setMonth(current.getMonth() + 1);
-      }
-    } else {
-      // Original logic for other time filters
-      const current = new Date(startDate);
-
-      while (current <= endDate) {
-        const periodEnd = new Date(current);
-        
-        // Set the end of the current period
-        if (timeFilter === "daily") {
-          periodEnd.setDate(current.getDate() + 1);
-        } else if (timeFilter === "weekly") {
-          periodEnd.setDate(current.getDate() + 7);
-        } else {
-          periodEnd.setDate(current.getDate() + 30); // All time grouped by month
-        }
-
-        const periodPredictions = predictions.filter(p => {
-          const predDate = new Date(p.created_at);
-          return predDate >= current && predDate < periodEnd;
-        });
-
-        const activeUsersInPeriod = new Set(periodPredictions.map(p => p.user_id));
-        
-        // Add to cumulative set
-        activeUsersInPeriod.forEach(userId => cumulativeActiveUsers.add(userId));
-
-        data.push({
-          date: formatDateForDisplay(current),
-          active_users: activeUsersInPeriod.size,
-          cumulative_users: cumulativeActiveUsers.size
-        });
-
-        // Move to next period
-        if (timeFilter === "daily") {
-          current.setDate(current.getDate() + 1);
-        } else if (timeFilter === "weekly") {
-          current.setDate(current.getDate() + 7);
-        } else {
-          current.setDate(current.getDate() + 30);
-        }
-      }
-    }
-
-    if (debugMode) {
-      console.log('=== FINAL ACTIVE USERS DATA ===');
-      console.log('Generated data points:', data.length);
-      console.log('Sample data:', data.slice(-3)); // Last 3 entries
-      console.log('Total cumulative users:', cumulativeActiveUsers.size);
-    }
-
-    return data;
-  };
-
-  const generateUserGrowthData = (users: User[], startDate: Date, endDate: Date) => {
-    const data = [];
+  const generateUserActivityData = (users: User[], predictions: Prediction[]): UserActivityData[] => {
+    const data: UserActivityData[] = [];
+    
+    // Get date range for comprehensive data (last 2 years)
+    const now = new Date();
+    const startDate = new Date(now.getFullYear() - 2, 0, 1);
+    
+    // Generate daily data points
     const current = new Date(startDate);
     let cumulativeUsers = 0;
+    let cumulativeTraders = 0;
+    const tradersSet = new Set<string>();
+    
+    while (current <= now) {
+      const dayStart = new Date(current);
+      const dayEnd = new Date(current.getFullYear(), current.getMonth(), current.getDate(), 23, 59, 59, 999);
 
-    // Count users that existed before our date range
-    const usersBeforeRange = users.filter(user => 
-      new Date(user.created_at) < startDate
-    ).length;
-    cumulativeUsers = usersBeforeRange;
-
-    while (current <= endDate) {
-      const periodEnd = new Date(current);
-      
-      if (timeFilter === "daily") {
-        periodEnd.setDate(current.getDate() + 1);
-      } else if (timeFilter === "weekly") {
-        periodEnd.setDate(current.getDate() + 7);
-      } else if (timeFilter === "monthly") {
-        periodEnd.setMonth(current.getMonth() + 1);
-      } else {
-        periodEnd.setDate(current.getDate() + 30);
-      }
-
-      const newUsers = users.filter(user => {
+      // Count new signups for this day
+      const newSignups = users.filter(user => {
         const userDate = new Date(user.created_at);
-        return userDate >= current && userDate < periodEnd;
+        return userDate >= dayStart && userDate <= dayEnd;
       }).length;
 
-      cumulativeUsers += newUsers;
+      cumulativeUsers += newSignups;
 
-      data.push({
-        date: formatDateForDisplay(current),
-        new_users: newUsers,
-        cumulative_users: cumulativeUsers
-      });
-
-      // Move to next period
-      if (timeFilter === "daily") {
-        current.setDate(current.getDate() + 1);
-      } else if (timeFilter === "weekly") {
-        current.setDate(current.getDate() + 7);
-      } else if (timeFilter === "monthly") {
-        current.setMonth(current.getMonth() + 1);
-      } else {
-        current.setDate(current.getDate() + 30);
-      }
-    }
-
-    return data;
-  };
-
-  const generateVolumeData = (predictions: Prediction[], startDate: Date, endDate: Date) => {
-    const data = [];
-    const current = new Date(startDate);
-
-    while (current <= endDate) {
-      const periodEnd = new Date(current);
-      
-      if (timeFilter === "daily") {
-        periodEnd.setDate(current.getDate() + 1);
-      } else if (timeFilter === "weekly") {
-        periodEnd.setDate(current.getDate() + 7);
-      } else if (timeFilter === "monthly") {
-        periodEnd.setMonth(current.getMonth() + 1);
-      } else {
-        periodEnd.setDate(current.getDate() + 30);
-      }
-
-      const periodPredictions = predictions.filter(p => {
+      // Count new traders for this day (users who made their first trade)
+      const dayPredictions = predictions.filter(p => {
         const predDate = new Date(p.created_at);
-        return predDate >= current && predDate < periodEnd;
+        return predDate >= dayStart && predDate <= dayEnd;
       });
 
-      const predictionCount = periodPredictions.length;
-      const totalVolume = periodPredictions.reduce((sum, p) => sum + Math.abs(p.trade_value || 0), 0);
+      let newTraders = 0;
+      dayPredictions.forEach(pred => {
+        if (!tradersSet.has(pred.user_id)) {
+          tradersSet.add(pred.user_id);
+          newTraders++;
+        }
+      });
+
+      cumulativeTraders += newTraders;
+
+      // Count active traders for this day (users who traded on this specific day)
+      const activeTraders = new Set(dayPredictions.map(p => p.user_id)).size;
 
       data.push({
-        date: formatDateForDisplay(current),
-        prediction_count: predictionCount,
-        total_volume: totalVolume
+        date: current.toISOString().split('T')[0],
+        new_signups: newSignups,
+        cumulative_users: cumulativeUsers,
+        new_traders: newTraders,
+        cumulative_traders: cumulativeTraders,
+        active_traders: activeTraders
       });
 
-      // Move to next period
-      if (timeFilter === "daily") {
-        current.setDate(current.getDate() + 1);
-      } else if (timeFilter === "weekly") {
-        current.setDate(current.getDate() + 7);
-      } else if (timeFilter === "monthly") {
-        current.setMonth(current.getMonth() + 1);
-      } else {
-        current.setDate(current.getDate() + 30);
-      }
+      // Move to next day
+      current.setDate(current.getDate() + 1);
     }
 
     return data;
   };
 
-  const formatDateForDisplay = (date: Date) => {
-    if (timeFilter === "daily") {
-      return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
-    } else if (timeFilter === "weekly") {
-      return `Week of ${date.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}`;
-    } else if (timeFilter === "monthly") {
-      return date.toLocaleDateString('en-US', { year: 'numeric', month: 'short' });
-    } else {
-      return date.toLocaleDateString('en-US', { year: 'numeric', month: 'short' });
+  const generateMarketActivityData = (predictions: Prediction[], markets: Market[]): MarketActivityData[] => {
+    const data: MarketActivityData[] = [];
+    
+    // Get date range for comprehensive data (last 2 years to cover all scenarios)
+    const now = new Date();
+    const startDate = new Date(now.getFullYear() - 2, 0, 1); // Start from 2 years ago
+    
+    // Generate daily data points
+    const current = new Date(startDate);
+    
+    while (current <= now) {
+      const dayStart = new Date(current);
+      const dayEnd = new Date(current.getFullYear(), current.getMonth(), current.getDate(), 23, 59, 59, 999);
+
+      // Filter predictions for this day
+      const dayPredictions = predictions.filter(p => {
+        const predDate = new Date(p.created_at);
+        return predDate >= dayStart && predDate <= dayEnd;
+      });
+
+      // Filter markets created on this day
+      const marketsCreated = markets.filter(m => {
+        const marketDate = new Date(m.created_at);
+        return marketDate >= dayStart && marketDate <= dayEnd;
+      });
+
+      const predictionCount = dayPredictions.length;
+      const totalVolume = dayPredictions.reduce((sum, p) => sum + Math.abs(p.trade_value || 0), 0);
+      const marketsCreatedCount = marketsCreated.length;
+
+      data.push({
+        date: current.toISOString().split('T')[0], // YYYY-MM-DD format for daily data
+        predictions: predictionCount,
+        markets_created: marketsCreatedCount,
+        volume: totalVolume
+      });
+
+      // Move to next day
+      current.setDate(current.getDate() + 1);
     }
-  };
 
-  const formatCurrency = (value: number) => {
-    return new Intl.NumberFormat('en-US', {
-      style: 'currency',
-      currency: 'USD',
-      minimumFractionDigits: 2,
-      maximumFractionDigits: 2
-    }).format(value);
-  };
-
-  const formatNumber = (value: number) => {
-    return new Intl.NumberFormat('en-US').format(value);
+    return data;
   };
 
   if (loading) {
     return (
-      <div className="min-h-screen bg-black text-white">
-        <Navbar />
+      <div className="min-h-screen bg-transparent text-white">
         <div className="container mx-auto p-6">
           <div className="flex justify-center items-center py-12">
             <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-500"></div>
@@ -406,8 +290,7 @@ export default function AnalyticsPage() {
 
   if (error) {
     return (
-      <div className="min-h-screen bg-black text-white">
-        <Navbar />
+      <div className="min-h-screen bg-transparent text-white">
         <div className="container mx-auto p-6">
           <div className="bg-red-900/30 border border-red-700 rounded-lg p-4">
             <p className="text-red-400">Error: {error}</p>
@@ -419,8 +302,7 @@ export default function AnalyticsPage() {
 
   if (!analyticsData) {
     return (
-      <div className="min-h-screen bg-black text-white">
-        <Navbar />
+      <div className="min-h-screen bg-transparent text-white">
         <div className="container mx-auto p-6">
           <p className="text-center text-gray-400">No analytics data available</p>
         </div>
@@ -429,214 +311,130 @@ export default function AnalyticsPage() {
   }
 
   return (
-    <div className="min-h-screen bg-black text-white">
-      <Navbar />
+    <div className="min-h-screen bg-transparent text-white">
       <div className="container mx-auto p-6">
+        {/* Header with View Toggle */}
         <div className="mb-8">
-          <h1 className="text-3xl font-bold mb-2">Analytics Dashboard</h1>
-          <p className="text-gray-400">Prophet prediction market platform statistics</p>
-        </div>
-
-        {/* Debug Toggle */}
-        <div className="mb-6">
-          <button
-            onClick={() => setDebugMode(!debugMode)}
-            className={`px-3 py-1 rounded text-sm ${
-              debugMode ? "bg-yellow-600 text-white" : "bg-gray-600 text-gray-300"
-            }`}
-          >
-            {debugMode ? "Disable Debug" : "Enable Debug"}
-          </button>
-          {debugMode && (
-            <p className="text-yellow-400 text-sm mt-1">
-              Debug mode enabled - check browser console for detailed logs
-            </p>
-          )}
-        </div>
-
-        {/* Time Filter Selector */}
-        <div className="mb-6">
-          <div className="flex gap-2">
-            {[
-              { key: "daily" as const, label: "Daily" },
-              { key: "weekly" as const, label: "Weekly" },
-              { key: "monthly" as const, label: "Monthly" },
-              { key: "all" as const, label: "All Time" }
-            ].map(({ key, label }) => (
+          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-6">
+            <div>
+              <h1 className="text-3xl font-bold mb-2">
+                {activeView === 'user' ? 'User Analytics' : 'Market Analytics'}
+              </h1>
+              <p className="text-gray-400">
+                {activeView === 'user' 
+                  ? 'Prophet user engagement and activity statistics' 
+                  : 'Prophet prediction market statistics and trends'
+                }
+              </p>
+            </div>
+            
+            {/* View Toggle */}
+            <div className="flex rounded-lg bg-gray-800 p-1">
               <button
-                key={key}
-                onClick={() => setTimeFilter(key)}
-                className={`px-4 py-2 rounded-lg transition-colors ${
-                  timeFilter === key
-                    ? "bg-blue-600 text-white"
-                    : "bg-gray-800 text-gray-300 hover:bg-gray-700"
+                onClick={() => setActiveView('user')}
+                className={`px-6 py-3 rounded-md text-sm font-medium transition-colors flex items-center gap-2 ${
+                  activeView === 'user'
+                    ? "bg-purple-600 text-white shadow-sm"
+                    : "text-gray-400 hover:text-gray-200"
                 }`}
               >
-                {label}
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197m13.5-9a2.25 2.25 0 11-4.5 0 2.25 2.25 0 014.5 0z" />
+                </svg>
+                User Analytics
               </button>
-            ))}
-          </div>
-        </div>
-
-        {/* Key Metrics Cards */}
-        <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
-          <div className="bg-gray-900 rounded-lg p-6 border border-gray-800">
-            <h3 className="text-sm font-medium text-gray-400 mb-2">Total Users</h3>
-            <div className="text-3xl font-bold text-white mb-1">{formatNumber(analyticsData.totalUsers)}</div>
-            <div className="text-sm text-blue-400">
-              Platform-wide registrations
-            </div>
-          </div>
-
-          <div className="bg-gray-900 rounded-lg p-6 border border-gray-800">
-            <h3 className="text-sm font-medium text-gray-400 mb-2">Total Predictions</h3>
-            <div className="text-3xl font-bold text-white mb-1">{formatNumber(analyticsData.totalPredictions)}</div>
-            <div className="text-sm text-green-400">
-              {timeFilter === "all" ? "All time" : `Last ${timeFilter.replace('ly', '')}`}
-            </div>
-          </div>
-
-          <div className="bg-gray-900 rounded-lg p-6 border border-gray-800">
-            <h3 className="text-sm font-medium text-gray-400 mb-2">Trade Volume</h3>
-            <div className="text-3xl font-bold text-white mb-1">{formatCurrency(analyticsData.totalTradeVolume)}</div>
-            <div className="text-sm text-purple-400">
-              {timeFilter === "all" ? "All time" : `Last ${timeFilter.replace('ly', '')}`}
+              <button
+                onClick={() => setActiveView('market')}
+                className={`px-6 py-3 rounded-md text-sm font-medium transition-colors flex items-center gap-2 ${
+                  activeView === 'market'
+                    ? "bg-blue-600 text-white shadow-sm"
+                    : "text-gray-400 hover:text-gray-200"
+                }`}
+              >
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
+                </svg>
+                Market Analytics
+              </button>
             </div>
           </div>
         </div>
 
-        {/* Active Users Chart */}
-        <div className="bg-gray-900 rounded-lg p-6 border border-gray-800 mb-8">
-          <h3 className="text-lg font-semibold mb-4">Active Users Over Time</h3>
-          {debugMode && (
-            <div className="mb-4 text-sm text-yellow-400 bg-yellow-900/20 p-2 rounded">
-              Data points: {analyticsData.activeUsersData.length} | 
-              Max active users: {Math.max(...analyticsData.activeUsersData.map(d => d.active_users))} |
-              Total cumulative: {Math.max(...analyticsData.activeUsersData.map(d => d.cumulative_users))}
-            </div>
-          )}
-          <div className="h-80">
-            <ResponsiveContainer width="100%" height="100%">
-              <LineChart data={analyticsData.activeUsersData}>
-                <CartesianGrid strokeDasharray="3 3" stroke="#374151" />
-                <XAxis 
-                  dataKey="date" 
-                  stroke="#9CA3AF"
-                  fontSize={12}
-                  angle={timeFilter === "daily" ? -45 : 0}
-                  textAnchor={timeFilter === "daily" ? "end" : "middle"}
-                  height={timeFilter === "daily" ? 80 : 60}
-                />
-                <YAxis stroke="#9CA3AF" />
-                <Tooltip 
-                  contentStyle={{ 
-                    backgroundColor: '#1F2937', 
-                    border: '1px solid #374151',
-                    borderRadius: '8px',
-                    color: '#F9FAFB'
-                  }}
-                  formatter={(value, name) => [
-                    formatNumber(Number(value)),
-                    name === 'active_users' ? 'Active Users' : 'Cumulative Active Users'
-                  ]}
-                />
-                <Line 
-                  type="monotone" 
-                  dataKey="active_users" 
-                  stroke="#3B82F6" 
-                  strokeWidth={2}
-                  name="active_users"
-                />
-                <Line 
-                  type="monotone" 
-                  dataKey="cumulative_users" 
-                  stroke="#10B981" 
-                  strokeWidth={2}
-                  name="cumulative_users"
-                />
-              </LineChart>
-            </ResponsiveContainer>
-          </div>
-          <div className="mt-4 flex justify-center gap-6 text-sm">
-            <div className="flex items-center gap-2">
-              <div className="w-3 h-3 bg-blue-500 rounded"></div>
-              <span className="text-gray-300">Active Users (Period)</span>
-            </div>
-            <div className="flex items-center gap-2">
-              <div className="w-3 h-3 bg-green-500 rounded"></div>
-              <span className="text-gray-300">Cumulative Active Users</span>
-            </div>
-          </div>
-        </div>
+        {/* User Analytics View */}
+        {activeView === 'user' && (
+          <>
+            {/* User Statistics Section */}
+            <UserStatistics
+              data={analyticsData.userStats}
+              loading={false}
+            />
 
-        {/* Additional Charts Row */}
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 mb-8">
-          {/* User Growth Chart */}
-          <div className="bg-gray-900 rounded-lg p-6 border border-gray-800">
-            <h3 className="text-lg font-semibold mb-4">User Growth</h3>
-            <div className="h-64">
-              <ResponsiveContainer width="100%" height="100%">
-                <BarChart data={analyticsData.userGrowthData}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="#374151" />
-                  <XAxis 
-                    dataKey="date" 
-                    stroke="#9CA3AF"
-                    fontSize={12}
-                    angle={timeFilter === "daily" ? -45 : 0}
-                    textAnchor={timeFilter === "daily" ? "end" : "middle"}
-                    height={timeFilter === "daily" ? 60 : 40}
-                  />
-                  <YAxis stroke="#9CA3AF" />
-                  <Tooltip 
-                    contentStyle={{ 
-                      backgroundColor: '#1F2937', 
-                      border: '1px solid #374151',
-                      borderRadius: '8px',
-                      color: '#F9FAFB'
-                    }}
-                    formatter={(value) => [formatNumber(Number(value)), 'New Users']}
-                  />
-                  <Bar dataKey="new_users" fill="#8B5CF6" />
-                </BarChart>
-              </ResponsiveContainer>
+            {/* User Activity Charts */}
+            <UserActivityCharts
+              data={analyticsData.userActivityData}
+              loading={false}
+            />
+            
+            {/* User-focused insights placeholder */}
+            <div className="bg-gray-900 rounded-lg p-6 border border-gray-800 mb-8">
+              <h3 className="text-xl font-semibold text-white mb-4">User Activity Insights</h3>
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                <div className="bg-gray-800 rounded-lg p-4 border border-gray-700">
+                  <h4 className="text-gray-400 text-sm mb-2">Engagement Rate</h4>
+                  <div className="text-2xl font-bold text-purple-400">
+                    {analyticsData ? `${analyticsData.userStats.traderRatio.toFixed(1)}%` : '0%'}
+                  </div>
+                  <p className="text-gray-500 text-xs mt-1">Users who have traded</p>
+                </div>
+                
+                <div className="bg-gray-800 rounded-lg p-4 border border-gray-700">
+                  <h4 className="text-gray-400 text-sm mb-2">Average Trades per Trader</h4>
+                  <div className="text-2xl font-bold text-green-400">
+                    {analyticsData && analyticsData.userStats.activeTraders > 0 
+                      ? (analyticsData.marketStats.allTime.predictions / analyticsData.userStats.activeTraders).toFixed(1)
+                      : '0'
+                    }
+                  </div>
+                  <p className="text-gray-500 text-xs mt-1">Predictions per active user</p>
+                </div>
+                
+                <div className="bg-gray-800 rounded-lg p-4 border border-gray-700">
+                  <h4 className="text-gray-400 text-sm mb-2">Platform Adoption</h4>
+                  <div className="text-2xl font-bold text-blue-400">
+                    {analyticsData ? 
+                      `${analyticsData.userStats.activeTraders}/${analyticsData.userStats.totalUsers}` 
+                      : '0/0'
+                    }
+                  </div>
+                  <p className="text-gray-500 text-xs mt-1">Active vs total users</p>
+                </div>
+              </div>
             </div>
-          </div>
+          </>
+        )}
 
-          {/* Prediction Volume Chart */}
-          <div className="bg-gray-900 rounded-lg p-6 border border-gray-800">
-            <h3 className="text-lg font-semibold mb-4">Prediction Volume</h3>
-            <div className="h-64">
-              <ResponsiveContainer width="100%" height="100%">
-                <BarChart data={analyticsData.predictionVolumeData}>
-                  <CartesianGrid strokeDasharray="3 3" stroke="#374151" />
-                  <XAxis 
-                    dataKey="date" 
-                    stroke="#9CA3AF"
-                    fontSize={12}
-                    angle={timeFilter === "daily" ? -45 : 0}
-                    textAnchor={timeFilter === "daily" ? "end" : "middle"}
-                    height={timeFilter === "daily" ? 60 : 40}
-                  />
-                  <YAxis stroke="#9CA3AF" />
-                  <Tooltip 
-                    contentStyle={{ 
-                      backgroundColor: '#1F2937', 
-                      border: '1px solid #374151',
-                      borderRadius: '8px',
-                      color: '#F9FAFB'
-                    }}
-                    formatter={(value) => [formatNumber(Number(value)), 'Predictions']}
-                  />
-                  <Bar dataKey="prediction_count" fill="#F59E0B" />
-                </BarChart>
-              </ResponsiveContainer>
-            </div>
-          </div>
-        </div>
+        {/* Market Analytics View */}
+        {activeView === 'market' && (
+          <>
+            {/* Market Statistics Section */}
+            <MarketStats
+              data={analyticsData.marketStats}
+              loading={false}
+            />
+
+            {/* Market Activity Charts */}
+            <MarketActivityCharts
+              data={analyticsData.marketActivityData}
+              loading={false}
+            />
+          </>
+        )}
 
         {/* Footer */}
         <div className="mt-8 text-center text-gray-400 text-sm">
-          <p>Analytics data updated in real-time. Time range: {timeFilter}</p>
+          <p>
+            {activeView === 'user' ? 'User analytics' : 'Market analytics'} updated in real-time
+          </p>
         </div>
       </div>
     </div>
