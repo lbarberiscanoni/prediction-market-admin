@@ -19,9 +19,29 @@ interface Payment {
   amount: number;
   payment_method: 'PayPal' | 'MTurk';
   transaction_id: string | null;
-  status: 'Pending' | 'Completed' | 'Failed';
+  status: 'Pending' | 'Completed' | 'Failed' | 'Unclaimed';
+  paypal_batch_id?: string | null;
+  paypal_status?: string | null;
   created_at: string;
 }
+
+// Map PayPal's per-item transaction_status onto our ledger status.
+// UNCLAIMED means the email has no confirmed PayPal account (PayPal will
+// notify them to claim, and auto-refund us if unclaimed after 30 days).
+const mapPayPalStatus = (s?: string): Payment['status'] => {
+  switch ((s || '').toUpperCase()) {
+    case 'SUCCESS':
+      return 'Completed';
+    case 'UNCLAIMED':
+      return 'Unclaimed';
+    case 'PENDING':
+    case 'PROCESSING':
+    case '':
+      return 'Pending';
+    default:
+      return 'Failed'; // RETURNED, BLOCKED, DENIED, REFUNDED, ...
+  }
+};
 
 const PaymentsPage: React.FC = () => {
   const router = useRouter();
@@ -213,13 +233,31 @@ const PaymentsPage: React.FC = () => {
           continue;
         }
 
-        // Update payment status and transaction ID
+        // For PayPal, map the returned transaction_status onto our ledger
+        // status; MTurk has no such status so it's Completed on success.
+        const newStatus: Payment['status'] = isPayPal
+          ? mapPayPalStatus(data.transaction_status)
+          : 'Completed';
+
+        // Record the outcome, including PayPal reconciliation fields.
         await supabase
           .from('payments')
-          .update({ status: 'Completed', transaction_id: data.transaction_id })
+          .update({
+            status: newStatus,
+            transaction_id: data.transaction_id,
+            paypal_batch_id: isPayPal ? data.batch_id ?? null : null,
+            paypal_status: isPayPal ? data.transaction_status ?? null : null,
+          })
           .eq('id', payment.id);
 
-        // Update player balance
+        // A hard failure from PayPal (RETURNED/BLOCKED/etc.) means no money
+        // moved, so don't deduct the balance.
+        if (newStatus === 'Failed') {
+          failedPayments.push(`PayPal could not process payment to ${player.username} (status: ${data.transaction_status || 'unknown'})`);
+          continue;
+        }
+
+        // Deduct balance when PayPal accepted the funds (Completed/Pending/Unclaimed).
         const newBalance = player.balance - amount;
         const { error: balanceError } = await supabase
           .from('profiles')
@@ -231,7 +269,7 @@ const PaymentsPage: React.FC = () => {
           continue;
         }
 
-        paymentRecords.push({ ...payment, status: 'Completed', transaction_id: data.transaction_id });
+        paymentRecords.push({ ...payment, status: newStatus, transaction_id: data.transaction_id });
       }
 
       console.log('Batch payment worker IDs:', workerIds); // For debugging - you can use this list in your payment function
