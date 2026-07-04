@@ -5,7 +5,6 @@ import supabase from "@/lib/supabase/createClient";
 import Navbar from "./navbar";
 
 export default function Onboarding() {
-  const [paymentType, setPaymentType] = useState("PayPal");
   const [paymentEmail, setPaymentEmail] = useState("");
   const [message, setMessage] = useState("");
 
@@ -23,10 +22,10 @@ export default function Onboarding() {
     }
 
     const userInfoData = {
-      id: user.id,
-      payment_type: paymentType,
-      paypal_info: paymentType === "PayPal" ? paymentEmail : null,
-      mturk_info: paymentType === "MTurk" ? paymentEmail : null,
+      user_id: user.id,
+      email: user.email,
+      payment_method: "PayPal", // enum "Payment Types"
+      payment_id: paymentEmail, // PayPal email
     };
 
     const { error } = await supabase.from("profiles").insert(userInfoData);
@@ -44,21 +43,7 @@ export default function Onboarding() {
       <h2 className="text-xl font-bold mb-4">Complete Your Onboarding</h2>
       <form onSubmit={handleSubmit} className="space-y-4">
         <div>
-          <label className="block mb-2 font-semibold">Payment Type</label>
-          <select
-            value={paymentType}
-            onChange={(e) => setPaymentType(e.target.value)}
-            className="w-full p-2 border rounded"
-          >
-            <option value="PayPal">PayPal</option>
-            <option value="MTurk">MTurk</option>
-          </select>
-        </div>
-
-        <div>
-          <label className="block mb-2 font-semibold">
-            Payment Email ({paymentType})
-          </label>
+          <label className="block mb-2 font-semibold">PayPal Email</label>
           <input
             type="email"
             value={paymentEmail}

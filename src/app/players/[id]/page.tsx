@@ -9,9 +9,8 @@ import Link from "next/link";
 interface Profile {
   id: string;
   username?: string;
-  payment_type?: string;
-  paypal_info?: string | null;
-  mturk_info?: string | null;
+  payment_method?: string;
+  payment_id?: string | null;
   balance?: number;
   created_at?: string;
   is_admin?: boolean;
@@ -138,21 +137,15 @@ export default function PlayerDetailsPage() {
               <h2 className="text-xl font-semibold mb-4">Payment Information</h2>
               <div className="space-y-3">
                 <p className="flex justify-between">
-                  <span className="text-gray-400">Payment Type:</span>
-                  <span>{profile.payment_type || "Not set"}</span>
+                  <span className="text-gray-400">Payment Method:</span>
+                  <span>{profile.payment_method || "Not set"}</span>
                 </p>
-                {profile.payment_type === "PayPal" && (
-                  <p className="flex justify-between">
-                    <span className="text-gray-400">PayPal Email:</span>
-                    <span>{profile.paypal_info || "Not provided"}</span>
-                  </p>
-                )}
-                {profile.payment_type === "MTurk" && (
-                  <p className="flex justify-between">
-                    <span className="text-gray-400">MTurk ID:</span>
-                    <span>{profile.mturk_info || "Not provided"}</span>
-                  </p>
-                )}
+                <p className="flex justify-between">
+                  <span className="text-gray-400">
+                    {profile.payment_method === "MTurk" ? "MTurk ID:" : "PayPal Email:"}
+                  </span>
+                  <span>{profile.payment_id || "Not provided"}</span>
+                </p>
               </div>
             </div>
           </div>

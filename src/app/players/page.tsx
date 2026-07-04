@@ -9,9 +9,8 @@ import Link from "next/link";
 interface Profile {
   id: string;
   username?: string;
-  payment_type?: string;
-  paypal_info?: string | null;
-  mturk_info?: string | null;
+  payment_method?: string;
+  payment_id?: string | null;
   balance?: number;
   created_at?: string;
 }
@@ -91,7 +90,7 @@ export default function PlayersPage() {
     (profile) =>
       (profile.username?.toLowerCase() || "").includes(searchTerm.toLowerCase()) ||
       (profile.id?.toLowerCase() || "").includes(searchTerm.toLowerCase()) ||
-      (profile.payment_type?.toLowerCase() || "").includes(searchTerm.toLowerCase())
+      (profile.payment_method?.toLowerCase() || "").includes(searchTerm.toLowerCase())
   );
 
   // Sort the filtered profiles
@@ -141,9 +140,9 @@ export default function PlayersPage() {
                   </th>
                   <th 
                     className="px-4 py-3 cursor-pointer hover:bg-gray-700"
-                    onClick={() => handleSort("payment_type")}
+                    onClick={() => handleSort("payment_method")}
                   >
-                    Payment Type {sortField === "payment_type" && (sortDirection === "asc" ? "↑" : "↓")}
+                    Payment Method {sortField === "payment_method" && (sortDirection === "asc" ? "↑" : "↓")}
                   </th>
                   <th 
                     className="px-4 py-3 cursor-pointer hover:bg-gray-700"
@@ -170,12 +169,9 @@ export default function PlayersPage() {
                       {typeof profile.balance === 'number' ? profile.balance.toFixed(2) : 'N/A'}
                     </td>
                     <td className="px-4 py-3">
-                      {profile.payment_type || "N/A"}
-                      {profile.payment_type === "PayPal" && profile.paypal_info && (
-                        <span className="ml-2 text-gray-400">({profile.paypal_info})</span>
-                      )}
-                      {profile.payment_type === "MTurk" && profile.mturk_info && (
-                        <span className="ml-2 text-gray-400">({profile.mturk_info})</span>
+                      {profile.payment_method || "N/A"}
+                      {profile.payment_id && (
+                        <span className="ml-2 text-gray-400">({profile.payment_id})</span>
                       )}
                     </td>
                     <td className="px-4 py-3">
