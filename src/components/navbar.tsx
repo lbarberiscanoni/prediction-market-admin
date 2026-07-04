@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import supabase from "@/lib/supabase/createClient";
 import LogoutButton from "./logout-button";
+import MigrationBanner from "./MigrationBanner";
 import Link from "next/link";
 import { User } from "@supabase/supabase-js";
 
@@ -32,6 +33,8 @@ export default function Navbar() {
   }, []);
 
   return (
+    <>
+    <MigrationBanner />
     <nav className="flex w-full justify-between items-center p-4 bg-transparent text-white">
       <h1 className="text-lg font-bold">Prediction Market</h1>
       <div className="flex space-x-4">
@@ -56,5 +59,6 @@ export default function Navbar() {
         )}
       </div>
     </nav>
+    </>
   );
 }

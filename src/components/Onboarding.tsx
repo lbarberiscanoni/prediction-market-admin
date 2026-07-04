@@ -21,14 +21,40 @@ export default function Onboarding() {
       return;
     }
 
-    const userInfoData = {
+    // Find the player's existing profile so migrating users convert their
+    // current row instead of creating a duplicate. Match on user_id first,
+    // then fall back to email for older rows that were never linked to an
+    // auth account. Only insert when no existing profile is found.
+    let existingId: number | null = null;
+
+    const { data: byUserId } = await supabase
+      .from("profiles")
+      .select("id")
+      .eq("user_id", user.id)
+      .maybeSingle();
+
+    if (byUserId) {
+      existingId = byUserId.id;
+    } else if (user.email) {
+      const { data: byEmail } = await supabase
+        .from("profiles")
+        .select("id")
+        .eq("email", user.email)
+        .maybeSingle();
+      if (byEmail) existingId = byEmail.id;
+    }
+
+    const paymentFields = {
       user_id: user.id,
       email: user.email,
       payment_method: "PayPal", // enum "Payment Types"
       payment_id: paymentEmail, // PayPal email
     };
 
-    const { error } = await supabase.from("profiles").insert(userInfoData);
+    const { error } =
+      existingId != null
+        ? await supabase.from("profiles").update(paymentFields).eq("id", existingId)
+        : await supabase.from("profiles").insert(paymentFields);
 
     if (error) {
       setMessage("Error saving user information: " + error.message);
