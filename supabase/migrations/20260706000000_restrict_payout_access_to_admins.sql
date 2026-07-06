@@ -1,3 +1,6 @@
+alter table public.profiles
+  add column if not exists is_admin boolean not null default false;
+
 drop policy if exists "authenticated read payments" on public.payments;
 drop policy if exists "authenticated insert payments" on public.payments;
 drop policy if exists "authenticated update payments" on public.payments;
