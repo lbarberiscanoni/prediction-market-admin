@@ -117,8 +117,8 @@ export async function getActiveUsers(options: ActiveUsersOptions = {}): Promise<
 
     const { data: profiles, error: profilesError } = await supabase
       .from('profiles')
-      .select('id, username, email, payment_id, payment_method, balance')
-      .in('id', userIds);
+      .select('user_id, username, email, payment_id, payment_method, balance')
+      .in('user_id', userIds);
 
     if (profilesError) {
       console.warn('Error fetching profiles:', profilesError.message);
@@ -135,7 +135,7 @@ export async function getActiveUsers(options: ActiveUsersOptions = {}): Promise<
 
     // Combine prediction stats with profile data
     const activeUsers: ActiveUser[] = filteredUsers.map(userStats => {
-      const profile = profiles?.find(p => p.id === userStats.user_id);
+      const profile = profiles?.find(p => p.user_id === userStats.user_id);
       
       return {
         user_id: userStats.user_id,

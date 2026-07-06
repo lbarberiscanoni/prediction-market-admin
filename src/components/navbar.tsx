@@ -38,13 +38,10 @@ export default function Navbar() {
     <nav className="flex w-full justify-between items-center p-4 bg-transparent text-white">
       <h1 className="text-lg font-bold">Prediction Market</h1>
       <div className="flex space-x-4">
-        <Link href="/markets" className="px-4 py-2 bg-blue-500 rounded-md hover:bg-blue-600">Markets</Link>
-        
         {user && (
           <>
             <Link href="/profile" className="px-4 py-2 bg-blue-500 rounded-md hover:bg-blue-600">Profile</Link>
-            {/* Display Players link for all logged-in users or just admins based on your preference */}
-            <Link href="/players" className="px-4 py-2 bg-blue-500 rounded-md hover:bg-blue-600">Players</Link>
+            <Link href="/leaderboard" className="px-4 py-2 bg-blue-500 rounded-md hover:bg-blue-600">Leaderboard</Link>
           </>
         )}
         

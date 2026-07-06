@@ -3,7 +3,6 @@
 import { useEffect, useState } from "react";
 import { User } from "@supabase/supabase-js";
 import supabase from "@/lib/supabase/createClient";
-import Navbar from "@/components/navbar";
 import Link from "next/link";
 
 interface Profile {
@@ -98,7 +97,6 @@ export default function PlayersPage() {
 
   return (
     <div className="min-h-screen bg-black text-white">
-      <Navbar />
       <div className="container mx-auto p-4">
         <h1 className="text-2xl font-bold mb-6">Players List</h1>
 

@@ -1,7 +1,6 @@
 "use client";
 
 import { useState, useEffect } from "react";
-import Navbar from "@/components/navbar";
 import AddIndicatorMarket from "@/components/AddIndicatorMarket";
 
 interface EconomicSeries {
@@ -380,7 +379,6 @@ export default function FREDDataPage() {
 
   return (
     <div className="min-h-screen bg-black text-white">
-      <Navbar />
       <div className="container mx-auto p-6">
         <div className="mb-8">
           <h1 className="text-3xl font-bold mb-2">FRED Economic Data</h1>

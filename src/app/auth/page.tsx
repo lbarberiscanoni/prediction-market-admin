@@ -38,6 +38,25 @@ export default function AuthPage() {
     }
   };
 
+  const handleForgotPassword = async () => {
+    if (!email) {
+      setMessage('Enter your email first, then click Forgot Password.');
+      return;
+    }
+
+    const redirectTo = `${window.location.origin}/auth/reset-password`;
+    const { error } = await supabase.auth.resetPasswordForEmail(email, {
+      redirectTo,
+    });
+
+    if (error) {
+      console.error('Error sending password reset email:', error.message);
+      setMessage(`Error: ${error.message}`);
+    } else {
+      setMessage('Password reset email sent. Check your inbox for the recovery link.');
+    }
+  };
+
   return (
     <div className="flex items-center justify-center min-h-screen bg-gray-100">
       <div className="w-full max-w-md p-8 space-y-6 bg-white shadow-md rounded-md">
@@ -73,6 +92,12 @@ export default function AuthPage() {
             className="w-full px-4 py-2 text-white bg-green-500 rounded-md hover:bg-green-600 focus:outline-none"
           >
             Log In
+          </button>
+          <button
+            onClick={handleForgotPassword}
+            className="w-full px-4 py-2 text-blue-600 bg-blue-50 border border-blue-200 rounded-md hover:bg-blue-100 focus:outline-none"
+          >
+            Forgot Password
           </button>
         </div>
 

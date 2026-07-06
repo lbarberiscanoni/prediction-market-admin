@@ -1,7 +1,5 @@
-"use client"
-
-import MarketsList from '@/components/MarketsList';
+import { notFound } from "next/navigation";
 
 export default function ViewMarkets() {
-  return <MarketsList />;
+  notFound();
 }

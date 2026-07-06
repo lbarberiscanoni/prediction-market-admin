@@ -3,7 +3,6 @@
 import { useEffect, useState } from "react";
 import { useParams } from "next/navigation";
 import supabase from "@/lib/supabase/createClient";
-import Navbar from "@/components/navbar";
 import Link from "next/link";
 
 interface Profile {
@@ -61,7 +60,6 @@ export default function PlayerDetailsPage() {
   if (loading) {
     return (
       <div className="min-h-screen bg-black text-white">
-        <Navbar />
         <div className="container mx-auto p-4">
           <div className="flex justify-center items-center py-8">
             <p className="text-xl">Loading player data...</p>
@@ -74,7 +72,6 @@ export default function PlayerDetailsPage() {
   if (error || !profile) {
     return (
       <div className="min-h-screen bg-black text-white">
-        <Navbar />
         <div className="container mx-auto p-4">
           <div className="bg-red-900 p-4 rounded">
             <p className="text-white">{error || "Player not found"}</p>
@@ -89,7 +86,6 @@ export default function PlayerDetailsPage() {
 
   return (
     <div className="min-h-screen bg-black text-white">
-      <Navbar />
       <div className="container mx-auto p-4">
         <div className="mb-4">
           <Link href="/players" className="text-blue-400 hover:underline flex items-center">
