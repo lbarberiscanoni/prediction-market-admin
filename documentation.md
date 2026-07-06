@@ -178,3 +178,33 @@ Enum values: `'PayPal'`, `'MTurk'`
 8. **Market Resolution:** Admin selects winning outcome → `predictions.ts` calculates payouts → user balances updated
 9. **Data Analytics:** `analytics/page.tsx` → Supabase queries → `recharts` visualizations → platform metrics display
 10. **Automated Market Creation:** `.github/workflows/fred-daily.yml` → FRED API → Supabase Edge Functions → new markets for economic releases
+
+## Leaderboard Bonus Payouts
+
+Participants are paid a **leaderboard-rank bonus** each payment cycle (intended cadence: every 2 weeks). Only users **on the leaderboard** are paid — not all participants. The leaderboard is the **top ~10** users, ranked by performance (P&L), recomputed daily by `calculate-leaderboard`.
+
+### Payout amount by rank
+
+| Rank | Payout (USD) |
+|---|---|
+| 1st | $3.00 |
+| 2nd | $1.50 |
+| 3rd | $1.00 |
+| 4th and below (on the leaderboard) | $0.50 (base) |
+
+A full top-10 cycle therefore costs **≈ $9.00** ( $3.00 + $1.50 + $1.00 + 7 × $0.50 ).
+
+**Source of truth:** these amounts come from Noah's payout scripts — `BASE_PAYOUT = 0.5` and `PLACEMENT_TOTALS = { 1: 3.0, 2: 1.5, 3: 1.0 }` in `lookup-mturk-leaderboard-assignments.mjs` (`payoutForRank(rank)`). If the schedule changes, update it here **and** wherever the payout job reads it.
+
+### Process (how a payout run works)
+
+Two steps, **human-in-the-loop** (a person reviews and approves before any money moves):
+
+1. **Prepare / dry-run** — fetch a leaderboard, map each member's `rank → amount`, resolve each member's `payment_id`, and print who/how much/total. No money moves. (Noah: `mturk:lookup`.)
+2. **Execute** — actually send, only on explicit trigger; defaults to dry-run otherwise. Uses an **idempotency token** (hash of leaderboard id + calculation_date + user_id + rank + amount) so a given cycle/rank cannot be paid twice. (Noah: `mturk:send-bonuses --execute`.)
+
+### PayPal implementation notes
+
+- The leaderboard rows already carry `payment_id` (the PayPal email), so the PayPal path skips all of the MTurk worker-ID / HIT-batch-CSV matching that Noah's scripts needed.
+- Pay each leaderboard member via the `send-paypal-payout` Edge Function; log to the `payments` table; `reconcile-payouts` (hourly cron) settles terminal status.
+- Members whose `payment_method` is still `MTurk` (or who have no PayPal `payment_id`) are **skipped** and must migrate to PayPal to be paid — this is the point of the MTurk→PayPal migration.

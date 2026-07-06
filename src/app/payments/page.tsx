@@ -3,6 +3,7 @@
 import React, { useState, useEffect } from 'react';
 import supabase from '@/lib/supabase/createClient';
 import { useRouter } from 'next/navigation';
+import CyclePayoutReview from '@/components/CyclePayoutReview';
 
 interface Player {
   id: string;
@@ -52,27 +53,7 @@ const PaymentsPage: React.FC = () => {
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
   const [showBatchConfirm, setShowBatchConfirm] = useState<boolean>(false);
-  const [showCycleConfirm, setShowCycleConfirm] = useState<boolean>(false);
-  const [processingCycle, setProcessingCycle] = useState<boolean>(false);
   const [processingBatch, setProcessingBatch] = useState<boolean>(false);
-
-  // Calculate the start and end dates for the current 2-week cycle (previous 14 days)
-  const getCurrentCycleDates = () => {
-    const now = new Date();
-    const cycleEnd = new Date(now);
-    cycleEnd.setHours(23, 59, 59, 999); // Set to end of today
-    
-    const cycleStart = new Date(now);
-    cycleStart.setDate(now.getDate() - 13); // 14 days total (today + previous 13 days)
-    cycleStart.setHours(0, 0, 0, 0); // Set to start of day
-    
-    return {
-      start: cycleStart.toLocaleDateString(),
-      end: cycleEnd.toLocaleDateString()
-    };
-  };
-
-  const cycleDates = getCurrentCycleDates();
 
   // Fetch user and players data
   useEffect(() => {
@@ -297,27 +278,6 @@ const PaymentsPage: React.FC = () => {
     }
   };
 
-  // Handle payment for all active users for the current cycle
-  const handleCyclePayments = async () => {
-    setProcessingCycle(true);
-    setError(null);
-    setSuccess(null);
-
-    try {
-      // This is where you would implement the logic for processing payments for all active users
-      // For now, just show a success message
-      setTimeout(() => {
-        setSuccess(`Cycle payments for ${cycleDates.start} to ${cycleDates.end} will be processed. Actual implementation pending.`);
-        setProcessingCycle(false);
-        setShowCycleConfirm(false);
-      }, 1500);
-    } catch (err) {
-      setError(`Error processing cycle payments: ${err}`);
-      setProcessingCycle(false);
-      setShowCycleConfirm(false);
-    }
-  };
-
   // Render
   return (
     <div className="container mx-auto p-6 bg-gray-900 min-h-screen text-white">
@@ -397,24 +357,8 @@ const PaymentsPage: React.FC = () => {
         )}
       </div>
 
-      {/* Cycle Payment Button */}
-      <div className="bg-gray-800 p-4 mb-6 rounded-lg shadow-md border border-gray-700">
-        <div className="flex flex-col sm:flex-row justify-between items-center">
-          <div>
-            <h3 className="text-xl font-semibold">Current Payment Cycle</h3>
-            <p className="text-gray-300 mt-1">
-              {cycleDates.start} - {cycleDates.end}
-            </p>
-          </div>
-          <button
-            onClick={() => setShowCycleConfirm(true)}
-            className="mt-3 sm:mt-0 px-6 py-2 bg-green-600 hover:bg-green-700 rounded-lg font-semibold transition-colors"
-            disabled={loading || processingCycle}
-          >
-            {processingCycle ? 'Processing...' : 'Pay All Active Users For Current Cycle'}
-          </button>
-        </div>
-      </div>
+      {/* Biweekly leaderboard-bonus cycle payout, staged for review */}
+      <CyclePayoutReview />
 
       {error && <p className="text-red-500 mb-4 whitespace-pre-line">{error}</p>}
       {success && <p className="text-green-500 mb-4">{success}</p>}
@@ -507,38 +451,6 @@ const PaymentsPage: React.FC = () => {
                     disabled={processingBatch}
                   >
                     {processingBatch ? 'Processing...' : 'Confirm Batch Payment'}
-                  </button>
-                </div>
-              </div>
-            </div>
-          )}
-          
-          {/* Modal for cycle payment */}
-          {showCycleConfirm && (
-            <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
-              <div className="bg-gray-800 p-6 rounded-lg shadow-lg max-w-md w-full">
-                <h3 className="text-lg font-semibold mb-4">Confirm Cycle Payments</h3>
-                <p>Are you sure you want to process payments for all active users for the current cycle?</p>
-                <p className="mt-2 text-gray-300">
-                  Cycle period: {cycleDates.start} - {cycleDates.end}
-                </p>
-                <div className="mt-6 text-amber-400 bg-amber-900/30 p-3 rounded-md">
-                  <p>Note: This will calculate and process payments for all eligible users based on their activity during the current cycle.</p>
-                </div>
-                <div className="flex justify-end gap-4 mt-6">
-                  <button
-                    onClick={() => setShowCycleConfirm(false)}
-                    className="px-4 py-2 bg-gray-600 rounded hover:bg-gray-700"
-                    disabled={processingCycle}
-                  >
-                    Cancel
-                  </button>
-                  <button
-                    onClick={handleCyclePayments}
-                    className="px-4 py-2 bg-green-600 rounded hover:bg-green-700"
-                    disabled={processingCycle}
-                  >
-                    {processingCycle ? 'Processing...' : 'Confirm'}
                   </button>
                 </div>
               </div>
