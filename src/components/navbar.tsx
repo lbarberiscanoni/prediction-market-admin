@@ -22,7 +22,7 @@ export default function Navbar() {
         const { data } = await supabase
           .from("profiles")
           .select("is_admin")
-          .eq("id", user.id)
+          .eq("user_id", user.id)
           .single();
         
         setIsAdmin(data?.is_admin === true);

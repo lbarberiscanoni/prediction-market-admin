@@ -9,6 +9,7 @@ import {
   MTurkClient, 
   SendBonusCommand 
 } from 'https://esm.sh/v135/@aws-sdk/client-mturk@3.414.0?target=deno';
+import { requireAdmin } from '../_shared/admin.ts';
 
 interface BonusRequest {
   workerId: string;
@@ -42,6 +43,11 @@ serve(async (req) => {
   }
 
   try {
+    const auth = await requireAdmin(req);
+    if (auth instanceof Response) {
+      return auth;
+    }
+
     // Parse and validate the incoming JSON
     const { workerId, assignmentId, amount, reason } = await req.json() as BonusRequest;
     
@@ -150,7 +156,7 @@ To deploy this function to Supabase:
    supabase secrets set AWS_ACCESS_KEY_ID=your_access_key_id AWS_SECRET_ACCESS_KEY=your_secret_access_key
 
 4. Deploy the function:
-   supabase functions deploy send-mturk-bonus --no-verify-jwt
+   supabase functions deploy send-mturk-bonus
 
 5. Call the function with:
    curl -X POST https://your-project-ref.supabase.co/functions/v1/send-mturk-bonus \

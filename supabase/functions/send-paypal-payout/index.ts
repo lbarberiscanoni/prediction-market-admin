@@ -12,6 +12,7 @@
 //   PAYPAL_API_BASE    - defaults to sandbox; set to https://api-m.paypal.com for live
 
 import { serve } from 'https://deno.land/std@0.131.0/http/server.ts';
+import { requireAdmin } from '../_shared/admin.ts';
 
 interface PayoutRequest {
   email: string;
@@ -57,6 +58,9 @@ serve(async (req) => {
   if (req.method !== 'POST') return json({ error: 'Method not allowed' }, 405);
 
   try {
+    const auth = await requireAdmin(req);
+    if (auth instanceof Response) return auth;
+
     const { email, amount, note, senderItemId } = (await req.json()) as PayoutRequest;
 
     if (!email || !email.includes('@') || typeof amount !== 'number' || amount <= 0) {
