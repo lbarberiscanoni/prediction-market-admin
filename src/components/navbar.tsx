@@ -46,7 +46,10 @@ export default function Navbar() {
         )}
         
         {user && isAdmin && (
-          <Link href="/admin" className="px-4 py-2 bg-purple-600 rounded-md hover:bg-purple-700">Admin</Link>
+          <>
+            <Link href="/admin" className="px-4 py-2 bg-purple-600 rounded-md hover:bg-purple-700">Admin</Link>
+            <Link href="/payments" className="px-4 py-2 bg-green-600 rounded-md hover:bg-green-700">Payments</Link>
+          </>
         )}
         
         {user ? (
