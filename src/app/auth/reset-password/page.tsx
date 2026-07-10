@@ -70,8 +70,8 @@ export default function ResetPasswordPage() {
       return;
     }
 
-    setMessage("Password updated. Redirecting to your profile...");
-    router.push("/profile");
+    setMessage("Password updated. Redirecting...");
+    router.push("/");
     router.refresh();
   };
 
