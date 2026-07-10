@@ -1,12 +1,14 @@
 // src/app/analytics/page.tsx
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useState, useMemo } from "react";
 import supabase from "@/lib/supabase/createClient";
 import MarketStats from "@/components/analytics/MarketStats";
 import MarketActivityCharts from "@/components/analytics/MarketActivityCharts";
 import UserStatistics from "@/components/analytics/UserStatistics";
 import UserActivityCharts from "@/components/analytics/UserActivityCharts";
+
+type KpiTimeFilter = "2d" | "7d" | "30d";
 
 interface User {
   id: string;
@@ -33,6 +35,7 @@ interface Market {
 
 interface UserStatsData {
   totalUsers: number;
+  allTimeUsers: number;
   activeTraders: number;
   traderRatio: number;
 }
@@ -73,11 +76,70 @@ interface AnalyticsData {
   marketActivityData: MarketActivityData[];
 }
 
+function getKpiCutoffDate(filter: KpiTimeFilter): Date {
+  const now = new Date();
+  switch (filter) {
+    case "2d":
+      return new Date(now.getFullYear(), now.getMonth(), now.getDate() - 1); // start of yesterday
+    case "7d":
+      return new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
+    case "30d":
+      return new Date(now.getTime() - 30 * 24 * 60 * 60 * 1000);
+  }
+}
+
+function getKpiTimeFilterLabel(filter: KpiTimeFilter): string {
+  switch (filter) {
+    case "2d": return "Today & yesterday";
+    case "7d": return "Last 7 days";
+    case "30d": return "Last 30 days";
+  }
+}
+
 export default function AnalyticsPage() {
   const [analyticsData, setAnalyticsData] = useState<AnalyticsData | null>(null);
+  const [rawUsers, setRawUsers] = useState<User[]>([]);
+  const [rawPredictions, setRawPredictions] = useState<Prediction[]>([]);
+  const [rawMarkets, setRawMarkets] = useState<Market[]>([]);
   const [loading, setLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
   const [activeView, setActiveView] = useState<'user' | 'market'>('market');
+  const [kpiTimeFilter, setKpiTimeFilter] = useState<KpiTimeFilter>("30d");
+
+  const filteredUserStats = useMemo(() => {
+    if (rawUsers.length === 0 && rawPredictions.length === 0) {
+      return { totalUsers: 0, allTimeUsers: 0, activeTraders: 0, traderRatio: 0 };
+    }
+    const cutoff = getKpiCutoffDate(kpiTimeFilter);
+    const usersInPeriod = rawUsers.filter(u => new Date(u.created_at) >= cutoff);
+    const predictionsInPeriod = rawPredictions.filter(p => new Date(p.created_at) >= cutoff);
+    const tradersInPeriod = new Set(predictionsInPeriod.map(p => p.user_id));
+    const newUsers = usersInPeriod.length;
+    const allTimeUsers = rawUsers.length;
+    const activeTraders = tradersInPeriod.size;
+    const traderRatio = allTimeUsers > 0 ? (activeTraders / allTimeUsers) * 100 : 0;
+    return { totalUsers: newUsers, allTimeUsers, activeTraders, traderRatio };
+  }, [rawUsers, rawPredictions, kpiTimeFilter]);
+
+  const filteredMarketStats = useMemo(() => {
+    if (rawMarkets.length === 0 && rawPredictions.length === 0) {
+      return { allTime: { markets: 0, predictions: 0, tradeVolume: 0 }, open: { markets: 0, predictions: 0, tradeVolume: 0 } };
+    }
+    const cutoff = getKpiCutoffDate(kpiTimeFilter);
+    const marketsInPeriod = rawMarkets.filter(m => new Date(m.created_at) >= cutoff);
+    const predictionsInPeriod = rawPredictions.filter(p => new Date(p.created_at) >= cutoff);
+    const tradeVolume = predictionsInPeriod.reduce((sum, p) => sum + Math.abs(p.trade_value || 0), 0);
+
+    const openMarketIds = new Set(rawMarkets.filter(m => m.status === 'open').map(m => m.id));
+    const openPredictions = predictionsInPeriod.filter(p => openMarketIds.has(p.market_id));
+    const openVolume = openPredictions.reduce((sum, p) => sum + Math.abs(p.trade_value || 0), 0);
+    const openMarketsInPeriod = marketsInPeriod.filter(m => m.status === 'open');
+
+    return {
+      allTime: { markets: marketsInPeriod.length, predictions: predictionsInPeriod.length, tradeVolume: tradeVolume },
+      open: { markets: openMarketsInPeriod.length, predictions: openPredictions.length, tradeVolume: openVolume }
+    };
+  }, [rawMarkets, rawPredictions, kpiTimeFilter]);
 
   useEffect(() => {
     fetchAnalyticsData();
@@ -95,8 +157,6 @@ export default function AnalyticsPage() {
 
       if (usersError) throw new Error(`Failed to fetch users: ${usersError.message}`);
 
-      const totalUsers = usersData?.length || 0;
-
       // Fetch all markets (excluding pending markets)
       const { data: marketsData, error: marketsError } = await supabase
         .from("markets")
@@ -106,9 +166,6 @@ export default function AnalyticsPage() {
       if (marketsError) throw new Error(`Failed to fetch markets: ${marketsError.message}`);
 
       const markets = marketsData as Market[];
-      const totalMarkets = markets.length;
-      const openMarkets = markets.filter(m => m.status === 'open');
-      const openMarketsCount = openMarkets.length;
 
       // Fetch ALL predictions for market stats calculations
       const { data: allPredictionsData, error: allPredictionsError } = await supabase
@@ -118,51 +175,23 @@ export default function AnalyticsPage() {
       if (allPredictionsError) throw new Error(`Failed to fetch all predictions: ${allPredictionsError.message}`);
 
       const allTimePredictions = allPredictionsData || [];
+      const users = usersData || [];
 
-      // Calculate user statistics
-      const uniqueTraders = new Set(allTimePredictions.map(p => p.user_id));
-      const activeTraders = uniqueTraders.size;
-      const traderRatio = totalUsers > 0 ? (activeTraders / totalUsers) * 100 : 0;
+      // Store raw data for reuse by useMemo
+      setRawUsers(users);
+      setRawPredictions(allTimePredictions);
+      setRawMarkets(markets);
 
-      const userStats: UserStatsData = {
-        totalUsers,
-        activeTraders,
-        traderRatio
-      };
-
-      // Calculate market stats
-      const allTimeTradeVolume = allTimePredictions.reduce((sum, p) => sum + Math.abs(p.trade_value || 0), 0);
-
-      // Filter predictions for open markets only
-      const openMarketIds = new Set(openMarkets.map(m => m.id));
-      const openMarketPredictions = allTimePredictions.filter(p => openMarketIds.has(p.market_id));
-      const openMarketTradeVolume = openMarketPredictions.reduce((sum, p) => sum + Math.abs(p.trade_value || 0), 0);
-
-      const marketStats: MarketStatsData = {
-        allTime: {
-          markets: totalMarkets,
-          predictions: allTimePredictions.length,
-          tradeVolume: allTimeTradeVolume
-        },
-        open: {
-          markets: openMarketsCount,
-          predictions: openMarketPredictions.length,
-          tradeVolume: openMarketTradeVolume
-        }
-      };
-
-      // Generate chart data
-      const userActivityData = generateUserActivityData(usersData || [], allTimePredictions);
+      // Generate chart data (always uses full dataset)
+      const userActivityData = generateUserActivityData(users, allTimePredictions);
       const marketActivityData = generateMarketActivityData(allTimePredictions, markets);
 
-      const analytics: AnalyticsData = {
-        userStats,
+      setAnalyticsData({
+        userStats: { totalUsers: 0, allTimeUsers: 0, activeTraders: 0, traderRatio: 0 }, // placeholder, useMemo computes actual
         userActivityData,
-        marketStats,
+        marketStats: { allTime: { markets: 0, predictions: 0, tradeVolume: 0 }, open: { markets: 0, predictions: 0, tradeVolume: 0 } },
         marketActivityData
-      };
-
-      setAnalyticsData(analytics);
+      });
     } catch (err) {
       console.error("Error fetching analytics data:", err);
       setError(err instanceof Error ? err.message : "Failed to fetch analytics data");
@@ -313,7 +342,7 @@ export default function AnalyticsPage() {
   return (
     <div className="min-h-screen bg-transparent text-white">
       <div className="container mx-auto p-6">
-        {/* Header with View Toggle */}
+        {/* Header with View Toggle and KPI Time Filter */}
         <div className="mb-8">
           <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-6">
             <div>
@@ -321,41 +350,60 @@ export default function AnalyticsPage() {
                 {activeView === 'user' ? 'User Analytics' : 'Market Analytics'}
               </h1>
               <p className="text-gray-400">
-                {activeView === 'user' 
-                  ? 'Prophet user engagement and activity statistics' 
+                {activeView === 'user'
+                  ? 'Prophet user engagement and activity statistics'
                   : 'Prophet prediction market statistics and trends'
                 }
               </p>
             </div>
-            
-            {/* View Toggle */}
-            <div className="flex rounded-lg bg-gray-800 p-1">
-              <button
-                onClick={() => setActiveView('user')}
-                className={`px-6 py-3 rounded-md text-sm font-medium transition-colors flex items-center gap-2 ${
-                  activeView === 'user'
-                    ? "bg-purple-600 text-white shadow-sm"
-                    : "text-gray-400 hover:text-gray-200"
-                }`}
-              >
-                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197m13.5-9a2.25 2.25 0 11-4.5 0 2.25 2.25 0 014.5 0z" />
-                </svg>
-                User Analytics
-              </button>
-              <button
-                onClick={() => setActiveView('market')}
-                className={`px-6 py-3 rounded-md text-sm font-medium transition-colors flex items-center gap-2 ${
-                  activeView === 'market'
-                    ? "bg-blue-600 text-white shadow-sm"
-                    : "text-gray-400 hover:text-gray-200"
-                }`}
-              >
-                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
-                </svg>
-                Market Analytics
-              </button>
+
+            <div className="flex flex-col sm:flex-row gap-3">
+              {/* KPI Time Filter */}
+              <div className="flex rounded-lg bg-gray-800 p-1">
+                {(["2d", "7d", "30d"] as KpiTimeFilter[]).map((filter) => (
+                  <button
+                    key={filter}
+                    onClick={() => setKpiTimeFilter(filter)}
+                    className={`px-4 py-2 rounded-md text-sm font-medium transition-colors ${
+                      kpiTimeFilter === filter
+                        ? "bg-green-600 text-white shadow-sm"
+                        : "text-gray-400 hover:text-gray-200"
+                    }`}
+                  >
+                    {filter === "2d" ? "Today" : filter === "7d" ? "7 Days" : "30 Days"}
+                  </button>
+                ))}
+              </div>
+
+              {/* View Toggle */}
+              <div className="flex rounded-lg bg-gray-800 p-1">
+                <button
+                  onClick={() => setActiveView('user')}
+                  className={`px-6 py-3 rounded-md text-sm font-medium transition-colors flex items-center gap-2 ${
+                    activeView === 'user'
+                      ? "bg-purple-600 text-white shadow-sm"
+                      : "text-gray-400 hover:text-gray-200"
+                  }`}
+                >
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197m13.5-9a2.25 2.25 0 11-4.5 0 2.25 2.25 0 014.5 0z" />
+                  </svg>
+                  User Analytics
+                </button>
+                <button
+                  onClick={() => setActiveView('market')}
+                  className={`px-6 py-3 rounded-md text-sm font-medium transition-colors flex items-center gap-2 ${
+                    activeView === 'market'
+                      ? "bg-blue-600 text-white shadow-sm"
+                      : "text-gray-400 hover:text-gray-200"
+                  }`}
+                >
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
+                  </svg>
+                  Market Analytics
+                </button>
+              </div>
             </div>
           </div>
         </div>
@@ -365,7 +413,8 @@ export default function AnalyticsPage() {
           <>
             {/* User Statistics Section */}
             <UserStatistics
-              data={analyticsData.userStats}
+              data={filteredUserStats}
+              timeFilter={kpiTimeFilter}
               loading={false}
             />
 
@@ -375,38 +424,35 @@ export default function AnalyticsPage() {
               loading={false}
             />
             
-            {/* User-focused insights placeholder */}
+            {/* User-focused insights */}
             <div className="bg-gray-900 rounded-lg p-6 border border-gray-800 mb-8">
               <h3 className="text-xl font-semibold text-white mb-4">User Activity Insights</h3>
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
                 <div className="bg-gray-800 rounded-lg p-4 border border-gray-700">
                   <h4 className="text-gray-400 text-sm mb-2">Engagement Rate</h4>
                   <div className="text-2xl font-bold text-purple-400">
-                    {analyticsData ? `${analyticsData.userStats.traderRatio.toFixed(1)}%` : '0%'}
+                    {`${filteredUserStats.traderRatio.toFixed(1)}%`}
                   </div>
-                  <p className="text-gray-500 text-xs mt-1">Users who have traded</p>
+                  <p className="text-gray-500 text-xs mt-1">Users who traded ({getKpiTimeFilterLabel(kpiTimeFilter)})</p>
                 </div>
-                
+
                 <div className="bg-gray-800 rounded-lg p-4 border border-gray-700">
                   <h4 className="text-gray-400 text-sm mb-2">Average Trades per Trader</h4>
                   <div className="text-2xl font-bold text-green-400">
-                    {analyticsData && analyticsData.userStats.activeTraders > 0 
-                      ? (analyticsData.marketStats.allTime.predictions / analyticsData.userStats.activeTraders).toFixed(1)
+                    {filteredUserStats.activeTraders > 0
+                      ? (filteredMarketStats.allTime.predictions / filteredUserStats.activeTraders).toFixed(1)
                       : '0'
                     }
                   </div>
                   <p className="text-gray-500 text-xs mt-1">Predictions per active user</p>
                 </div>
-                
+
                 <div className="bg-gray-800 rounded-lg p-4 border border-gray-700">
                   <h4 className="text-gray-400 text-sm mb-2">Platform Adoption</h4>
                   <div className="text-2xl font-bold text-blue-400">
-                    {analyticsData ? 
-                      `${analyticsData.userStats.activeTraders}/${analyticsData.userStats.totalUsers}` 
-                      : '0/0'
-                    }
+                    {`${filteredUserStats.activeTraders}/${filteredUserStats.allTimeUsers}`}
                   </div>
-                  <p className="text-gray-500 text-xs mt-1">Active vs total users</p>
+                  <p className="text-gray-500 text-xs mt-1">Active traders vs total users ({getKpiTimeFilterLabel(kpiTimeFilter)})</p>
                 </div>
               </div>
             </div>
@@ -418,7 +464,8 @@ export default function AnalyticsPage() {
           <>
             {/* Market Statistics Section */}
             <MarketStats
-              data={analyticsData.marketStats}
+              data={filteredMarketStats}
+              timeFilter={kpiTimeFilter}
               loading={false}
             />
 

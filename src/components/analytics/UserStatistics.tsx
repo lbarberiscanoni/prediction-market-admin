@@ -5,22 +5,18 @@ import React, { memo } from 'react';
 
 interface UserStatsData {
   totalUsers: number;
-  activeTraders: number;
-  traderRatio: number; // percentage of users who are active traders
-}
-
-interface UserStatsData {
-  totalUsers: number;
+  allTimeUsers: number;
   activeTraders: number;
   traderRatio: number; // percentage of users who are active traders
 }
 
 interface UserStatisticsProps {
   data: UserStatsData;
+  timeFilter?: "2d" | "7d" | "30d";
   loading?: boolean;
 }
 
-const UserStatistics = memo(({ data, loading = false }: UserStatisticsProps) => {
+const UserStatistics = memo(({ data, timeFilter, loading = false }: UserStatisticsProps) => {
   const formatNumber = (value: number) => {
     return new Intl.NumberFormat('en-US').format(value);
   };
@@ -29,9 +25,12 @@ const UserStatistics = memo(({ data, loading = false }: UserStatisticsProps) => 
     return `${value.toFixed(1)}%`;
   };
 
+  const timeLabel = timeFilter === "2d" ? "today & yesterday" : timeFilter === "7d" ? "last 7 days" : timeFilter === "30d" ? "last 30 days" : "";
+
   // Provide default values if data is undefined
   const safeData = data || {
     totalUsers: 0,
+    allTimeUsers: 0,
     activeTraders: 0,
     traderRatio: 0
   };
@@ -52,7 +51,7 @@ const UserStatistics = memo(({ data, loading = false }: UserStatisticsProps) => 
         <h3 className="text-xl font-semibold text-white mb-6">User Statistics</h3>
         
         <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-          <LoadingCard title="Total Users" />
+          <LoadingCard title="New Users" />
           <LoadingCard title="Active Traders" />
           <LoadingCard title="Trader Ratio" />
         </div>
@@ -65,7 +64,9 @@ const UserStatistics = memo(({ data, loading = false }: UserStatisticsProps) => 
       {/* Header */}
       <div className="mb-6">
         <h3 className="text-xl font-semibold text-white">User Statistics</h3>
-        <p className="text-gray-400 text-sm mt-1">Platform user engagement and activity metrics</p>
+        <p className="text-gray-400 text-sm mt-1">
+          {timeLabel ? `User engagement and activity — ${timeLabel}` : 'Platform user engagement and activity metrics'}
+        </p>
       </div>
 
       {/* Stats Cards */}
@@ -73,7 +74,7 @@ const UserStatistics = memo(({ data, loading = false }: UserStatisticsProps) => 
         {/* Total Users Card */}
         <div className="bg-gray-800 rounded-lg p-6 border border-gray-700">
           <div className="flex items-center justify-between mb-3">
-            <h4 className="text-sm font-medium text-gray-400">Total Users</h4>
+            <h4 className="text-sm font-medium text-gray-400">New Users</h4>
             <div className="w-10 h-10 rounded-full bg-blue-500/20 flex items-center justify-center">
               <svg className="w-5 h-5 text-blue-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197m13.5-9a2.25 2.25 0 11-4.5 0 2.25 2.25 0 014.5 0z" />
@@ -84,7 +85,7 @@ const UserStatistics = memo(({ data, loading = false }: UserStatisticsProps) => 
             {formatNumber(safeData.totalUsers)}
           </div>
           <div className="text-sm text-blue-400">
-            Registered accounts
+            {timeLabel ? `New accounts ${timeLabel}` : 'Registered accounts'}
           </div>
         </div>
 
@@ -102,7 +103,7 @@ const UserStatistics = memo(({ data, loading = false }: UserStatisticsProps) => 
             {formatNumber(safeData.activeTraders)}
           </div>
           <div className="text-sm text-green-400">
-            Users with trades
+            {timeLabel ? `Traded ${timeLabel}` : 'Users with trades'}
           </div>
         </div>
 
@@ -131,13 +132,13 @@ const UserStatistics = memo(({ data, loading = false }: UserStatisticsProps) => 
           <div className="flex justify-between">
             <span>Active Traders:</span>
             <span className="text-green-400 font-medium">
-              {formatNumber(safeData.activeTraders)} of {formatNumber(safeData.totalUsers)} users
+              {formatNumber(safeData.activeTraders)} of {formatNumber(safeData.allTimeUsers)} users
             </span>
           </div>
           <div className="flex justify-between">
             <span>Non-traders:</span>
             <span className="text-gray-300 font-medium">
-              {formatNumber(safeData.totalUsers - safeData.activeTraders)} users ({formatPercentage(100 - safeData.traderRatio)})
+              {formatNumber(safeData.allTimeUsers - safeData.activeTraders)} users ({formatPercentage(100 - safeData.traderRatio)})
             </span>
           </div>
         </div>

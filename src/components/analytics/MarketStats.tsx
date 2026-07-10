@@ -20,12 +20,13 @@ interface MarketStatsData {
 
 interface MarketStatsProps {
   data: MarketStatsData;
+  timeFilter?: "2d" | "7d" | "30d";
   loading?: boolean;
 }
 
 type StatFilter = "open" | "allTime";
 
-const MarketStats = memo(({ data, loading = false }: MarketStatsProps) => {
+const MarketStats = memo(({ data, timeFilter, loading = false }: MarketStatsProps) => {
   const [activeFilter, setActiveFilter] = React.useState<StatFilter>("open");
 
   const formatCurrency = (value: number) => {
@@ -42,6 +43,8 @@ const MarketStats = memo(({ data, loading = false }: MarketStatsProps) => {
   };
 
   const currentStats = activeFilter === "open" ? data.open : data.allTime;
+
+  const timeLabel = timeFilter === "2d" ? "today & yesterday" : timeFilter === "7d" ? "last 7 days" : timeFilter === "30d" ? "last 30 days" : "";
 
   const LoadingCard = ({ title }: { title: string }) => (
     <div className="bg-gray-900 rounded-lg p-6 border border-gray-800">
@@ -120,7 +123,7 @@ const MarketStats = memo(({ data, loading = false }: MarketStatsProps) => {
             {formatNumber(currentStats.markets)}
           </div>
           <div className="text-sm text-emerald-400">
-            {activeFilter === "open" ? "Currently active" : "Total created"}
+            {activeFilter === "open" ? "Currently active" : `Created ${timeLabel}`}
           </div>
         </div>
 
@@ -138,7 +141,7 @@ const MarketStats = memo(({ data, loading = false }: MarketStatsProps) => {
             {formatNumber(currentStats.predictions)}
           </div>
           <div className="text-sm text-purple-400">
-            {activeFilter === "open" ? "On active markets" : "All time trades"}
+            {activeFilter === "open" ? "On active markets" : `Trades ${timeLabel}`}
           </div>
         </div>
 
@@ -156,18 +159,18 @@ const MarketStats = memo(({ data, loading = false }: MarketStatsProps) => {
             {formatCurrency(currentStats.tradeVolume)}
           </div>
           <div className="text-sm text-blue-400">
-            {activeFilter === "open" ? "Active market volume" : "Total volume traded"}
+            {activeFilter === "open" ? "Active market volume" : `Volume ${timeLabel}`}
           </div>
         </div>
       </div>
 
       {/* Optional: Stats Comparison */}
-      {activeFilter === "open" && (
+      {activeFilter === "open" && data.allTime.markets > 0 && (
         <div className="mt-4 pt-4 border-t border-gray-700">
           <div className="flex justify-between text-sm text-gray-400">
             <span>Showing statistics for open markets only</span>
             <span>
-              {((currentStats.markets / data.allTime.markets) * 100).toFixed(1)}% of total markets are currently open
+              {((currentStats.markets / data.allTime.markets) * 100).toFixed(1)}% of markets are currently open
             </span>
           </div>
         </div>
