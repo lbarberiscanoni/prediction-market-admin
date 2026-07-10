@@ -11,20 +11,6 @@ export default function AuthPage() {
 
   const router = useRouter();
 
-  const handleSignUp = async () => {
-    const { data, error } = await supabase.auth.signUp({
-      email,
-      password,
-    });
-    if (error) {
-      console.error('Error signing up:', error.message);
-      setMessage(`Error: ${error.message}`);
-    } else {
-      console.log('Sign-up successful:', data);
-      setMessage('Signup successful! Please check your email to confirm.');
-    }
-  };
-
   const handleLogin = async () => {
     const { error } = await supabase.auth.signInWithPassword({
       email,
@@ -61,7 +47,7 @@ export default function AuthPage() {
     <div className="flex items-center justify-center min-h-screen bg-gray-100">
       <div className="w-full max-w-md p-8 space-y-6 bg-white shadow-md rounded-md">
         <h1 className="text-2xl font-bold text-center text-gray-800">Welcome</h1>
-        <p className="text-sm text-center text-gray-600">Sign in or create an account</p>
+        <p className="text-sm text-center text-gray-600">Sign in to your account</p>
 
         <div className="space-y-4">
           <input
@@ -81,12 +67,6 @@ export default function AuthPage() {
         </div>
 
         <div className="space-y-2">
-          <button
-            onClick={handleSignUp}
-            className="w-full px-4 py-2 text-white bg-blue-500 rounded-md hover:bg-blue-600 focus:outline-none"
-          >
-            Sign Up
-          </button>
           <button
             onClick={handleLogin}
             className="w-full px-4 py-2 text-white bg-green-500 rounded-md hover:bg-green-600 focus:outline-none"
