@@ -7,6 +7,7 @@ import Link from "next/link";
 
 interface Profile {
   id: string;
+  user_id?: string;
   username?: string;
   payment_method?: string;
   payment_id?: string | null;
@@ -15,9 +16,20 @@ interface Profile {
   is_admin?: boolean;
 }
 
+interface PredictionRow {
+  id: number;
+  created_at?: string;
+  marketName: string;
+  outcomeName: string;
+  tradeType?: string;
+  sharesAmt?: number;
+  tradeValue?: number;
+}
+
 export default function PlayerDetailsPage() {
   const { id } = useParams();
   const [profile, setProfile] = useState<Profile | null>(null);
+  const [predictions, setPredictions] = useState<PredictionRow[]>([]);
   const [loading, setLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -43,8 +55,54 @@ export default function PlayerDetailsPage() {
         }
         
         setProfile(profileData);
-        
-        // We'll implement predictions fetching in a separate component later
+
+        // Load this player's trade history, keyed by their auth user_id.
+        // Failures here shouldn't hide the profile, so they're handled locally.
+        try {
+          const userId = profileData.user_id;
+          if (userId) {
+            const { data: preds, error: predsError } = await supabase
+              .from("predictions")
+              .select("id, market_id, outcome_id, trade_type, shares_amt, trade_value, created_at")
+              .eq("user_id", userId)
+              .order("created_at", { ascending: false });
+
+            if (predsError) throw predsError;
+
+            if (preds && preds.length > 0) {
+              const marketIds = [...new Set(preds.map((p) => p.market_id))];
+              const outcomeIds = [...new Set(preds.map((p) => p.outcome_id))];
+
+              const [{ data: markets }, { data: outcomes }] = await Promise.all([
+                supabase.from("markets").select("id, name").in("id", marketIds),
+                supabase.from("outcomes").select("id, name").in("id", outcomeIds),
+              ]);
+
+              const marketMap = new Map((markets ?? []).map((m) => [m.id, m.name]));
+              const outcomeMap = new Map((outcomes ?? []).map((o) => [o.id, o.name]));
+
+              setPredictions(
+                preds.map((p) => ({
+                  id: p.id,
+                  created_at: p.created_at,
+                  marketName: marketMap.get(p.market_id) ?? `Market #${p.market_id}`,
+                  outcomeName: outcomeMap.get(p.outcome_id) ?? `Outcome #${p.outcome_id}`,
+                  tradeType: p.trade_type,
+                  sharesAmt: p.shares_amt,
+                  tradeValue: p.trade_value,
+                }))
+              );
+            } else {
+              setPredictions([]);
+            }
+          }
+        } catch (predErr) {
+          console.error(
+            "Error fetching prediction history:",
+            predErr instanceof Error ? predErr.message : "Unknown error"
+          );
+          setPredictions([]);
+        }
 
       } catch (err) {
         // Properly handle and log the error
@@ -153,10 +211,55 @@ export default function PlayerDetailsPage() {
         <div className="bg-gray-900 rounded-lg shadow-lg p-6">
           <h2 className="text-xl font-semibold mb-4 border-b border-gray-700 pb-4">
             Prediction History
+            {predictions.length > 0 && (
+              <span className="ml-2 text-sm font-normal text-gray-400">
+                ({predictions.length})
+              </span>
+            )}
           </h2>
-          
-          {/* Placeholder for future prediction component */}
-          <p className="text-center py-4">Prediction history placeholder</p>
+
+          {predictions.length === 0 ? (
+            <p className="text-center py-4 text-gray-400">No predictions yet.</p>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="min-w-full divide-y divide-gray-700 text-sm">
+                <thead>
+                  <tr className="text-left text-gray-400">
+                    <th className="px-4 py-2 font-medium">Date</th>
+                    <th className="px-4 py-2 font-medium">Market</th>
+                    <th className="px-4 py-2 font-medium">Outcome</th>
+                    <th className="px-4 py-2 font-medium">Type</th>
+                    <th className="px-4 py-2 font-medium text-right">Shares</th>
+                    <th className="px-4 py-2 font-medium text-right">Value</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-gray-800">
+                  {predictions.map((p) => (
+                    <tr key={p.id}>
+                      <td className="px-4 py-2 whitespace-nowrap text-gray-300">
+                        {p.created_at
+                          ? new Date(p.created_at).toLocaleDateString()
+                          : "—"}
+                      </td>
+                      <td className="px-4 py-2">{p.marketName}</td>
+                      <td className="px-4 py-2">{p.outcomeName}</td>
+                      <td className="px-4 py-2 capitalize">{p.tradeType || "—"}</td>
+                      <td className="px-4 py-2 text-right">
+                        {typeof p.sharesAmt === "number"
+                          ? p.sharesAmt.toFixed(2)
+                          : "—"}
+                      </td>
+                      <td className="px-4 py-2 text-right">
+                        {typeof p.tradeValue === "number"
+                          ? `$${p.tradeValue.toFixed(2)}`
+                          : "—"}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
         </div>
       </div>
     </div>
