@@ -2,11 +2,6 @@ import Link from "next/link";
 
 const primaryActions = [
   {
-    href: "/profile",
-    title: "Profile",
-    description: "Review your balance, payment setup, holdings, trades, and payout history.",
-  },
-  {
     href: "/leaderboard",
     title: "Leaderboard",
     description: "See current standings and active users for the latest payout cycle.",
@@ -31,13 +26,13 @@ export default function Home() {
               Account and operations dashboard
             </h1>
             <p className="mt-4 max-w-2xl text-lg text-gray-300">
-              Market browsing is hidden for now. Use the profile, leaderboard,
-              and admin console to manage balances, review payout readiness, and
-              keep operations moving.
+              Market browsing is hidden for now. Use the leaderboard and admin
+              console to manage balances, review payout readiness, and keep
+              operations moving.
             </p>
           </div>
 
-          <div className="mt-8 grid gap-4 md:grid-cols-3">
+          <div className="mt-8 grid gap-4 md:grid-cols-2">
             {primaryActions.map((action) => (
               <Link
                 key={action.href}

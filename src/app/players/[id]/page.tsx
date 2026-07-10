@@ -27,11 +27,14 @@ export default function PlayerDetailsPage() {
       setError(null);
 
       try {
-        // Fetch player profile
+        // The id param may be a numeric profiles.id (from the players list /
+        // payments table) or an auth user_id UUID (from the leaderboard).
+        // Resolve against whichever column matches.
+        const lookupColumn = /^\d+$/.test(String(id)) ? "id" : "user_id";
         const { data: profileData, error: profileError } = await supabase
           .from("profiles")
           .select("*")
-          .eq("id", id)
+          .eq(lookupColumn, id)
           .single();
 
         if (profileError) {

@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import Link from "next/link";
 import supabase from "@/lib/supabase/createClient";
 
 interface LeaderboardEntry {
@@ -244,9 +245,12 @@ export default function Leaderboard() {
                     </div>
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap">
-                    <div className="text-sm font-medium text-white">
+                    <Link
+                      href={`/players/${player.user_id}`}
+                      className="text-sm font-medium text-blue-400 hover:text-blue-300 hover:underline"
+                    >
                       {player.username || player.user_id}
-                    </div>
+                    </Link>
                   </td>
                   <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-200">
                     {player.payment_id ?? "—"}

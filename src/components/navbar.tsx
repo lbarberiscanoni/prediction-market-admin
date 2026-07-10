@@ -39,10 +39,7 @@ export default function Navbar() {
       <h1 className="text-lg font-bold">Prediction Market</h1>
       <div className="flex space-x-4">
         {user && (
-          <>
-            <Link href="/profile" className="px-4 py-2 bg-blue-500 rounded-md hover:bg-blue-600">Profile</Link>
-            <Link href="/leaderboard" className="px-4 py-2 bg-blue-500 rounded-md hover:bg-blue-600">Leaderboard</Link>
-          </>
+          <Link href="/leaderboard" className="px-4 py-2 bg-blue-500 rounded-md hover:bg-blue-600">Leaderboard</Link>
         )}
         
         {user && isAdmin && (

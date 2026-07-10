@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
+import Link from 'next/link';
 import supabase from '@/lib/supabase/createClient';
 import { useRouter } from 'next/navigation';
 import CyclePayoutReview from '@/components/CyclePayoutReview';
@@ -395,7 +396,14 @@ const PaymentsPage: React.FC = () => {
                         disabled={loading}
                       />
                     </td>
-                    <td className="px-4 py-3 font-medium">{player.username}</td>
+                    <td className="px-4 py-3 font-medium">
+                      <Link
+                        href={`/players/${player.id}`}
+                        className="text-blue-400 hover:text-blue-300 hover:underline"
+                      >
+                        {player.username}
+                      </Link>
+                    </td>
                     <td className="px-4 py-3">{player.email}</td>
                     <td className="px-4 py-3 text-sm text-gray-300">{player.payment_id || 'N/A'}</td>
                     <td className="px-4 py-3 font-semibold">${player.balance.toFixed(2)}</td>
