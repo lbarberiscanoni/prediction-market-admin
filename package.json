@@ -13,7 +13,7 @@
     "@paypal/payouts-sdk": "^1.1.1",
     "@supabase/ssr": "^0.5.1",
     "@supabase/supabase-js": "^2.47.14",
-    "next": "^15.0.1",
+    "next": "15.0.7",
     "openai": "^4.80.0",
     "react": "^19.0.0-rc-69d4b800-20241021",
     "react-dom": "^19.0.0-rc-69d4b800-20241021",
