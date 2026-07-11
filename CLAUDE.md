@@ -181,6 +181,84 @@ for real payouts — not a phantom column.
   the public-facing platform; diff it to replicate features (see memory
   `public-platform-sibling-repo`).
 
+## Court-market pipeline (in progress)
+
+Goal: create + settle markets on court cases involving Kalshi/Polymarket,
+mirroring the FRED pipeline (discover → create via `add-market` → resolve).
+
+- **Phase 1 (live):** `sweep-court-cases` edge function — CourtListener v4
+  RECAP discovery over the entity alias list (Kalshi ⊃ KalshiEX; Polymarket =
+  Blockratize / Adventure One QSS), upserted into `public.court_cases`
+  (migrations `20260711000000`, `..000100`). Two passes per alias:
+  `party_name=` (precise) and full-text `q=` (recall — catches appellate/sparse
+  party data, e.g. 2→15 appellate cases). Full-text noise is tagged
+  `party_confirmed=false` (alias not found in case name/party list) for human
+  triage; `discovery_methods` records provenance. Sweep owns discovery fields
+  and overwrites them; curation fields (`status`, `company_role`, `case_type`,
+  `matter_id`, `notes`) are never touched. Supports `{dry_run:true}`.
+  Idempotent. Not yet on a pg_cron schedule.
+- **Phase 2 (planned):** LLM decomposition — classify each case, instantiate
+  market questions from a fixed template library (MTD/PI granted-by-date,
+  class-cert-by-date, settlement final approval, appeal outcome, time-boxed
+  termination), generate machine-checkable resolution specs, adversarially
+  verify, land in a human review queue. Needs `ANTHROPIC_API_KEY` secret.
+- **Phase 3 (planned):** review UI → `add-market`; `resolve-court-markets`
+  watcher classifying new docket entries into a pending-approval resolution
+  queue (never auto-resolve).
+
+### Proposed events data model (DESIGN ONLY — Lorenzo still deciding, do not build)
+
+Generalization discussed 2026-07-11: separate *events* (facts about the world,
+heterogeneous) from *markets* (bets, uniform) — the Kalshi `series → event →
+market` shape. Layers:
+
+```
+domain registries (court_cases, FRED list, …)   noisy, machine-owned, high recall
+      │ curation promotes worthy rows
+      ▼
+events            canonical referent: kind, title, status, details jsonb
+      ▼ 1:N
+market_specs      bridge + review queue + resolution binding:
+      │           event_id, template_id, params jsonb, question, justification,
+      │           market_id (once minted), status draft→approved→live→resolved
+      ▼ on approval mints
+markets/outcomes  existing tables — ONLY change is nullable markets.event_id
+```
+
+Design laws: (1) the trading core (`markets`, `outcomes`, `predictions`,
+`payouts`, AMM, leaderboard) never learns about domains — no court/FRED columns
+ever; (2) jsonb stores *parameters*, git-versioned resolver code stores *logic*
+(no resolution DSL). Registry→event promotion is load-bearing: 154 court rows →
+~35–40 events; noise never reaches the canonical layer. One event can carry a
+market ladder (MTD/cert/outcome; multi-strike FRED). A new domain = registry +
+templates + resolver adapter, nothing else changes. Migration path: (A) create
+`events` + `market_specs` + `markets.event_id`, inert; (B) court pipeline
+targets it; (C) optionally retrofit FRED (event per release). Open questions:
+hand-created `kind='custom'` events (lean yes); multi-outcome specs for appeals
+(lean yes — `outcomes` already supports ≥2); require a spec for every new
+event-linked market (lean yes, legacy exempt).
+
+Known gaps / design notes:
+- Appellate dockets under-match on `party_name` (sparse party data in
+  CourtListener's appellate coverage) — needs a supplementary full-text pass.
+- **Matter vs. proceeding (core modeling rule):** a *matter* is the underlying
+  dispute; a *proceeding* is one docket. Markets attach to **proceedings**, not
+  matters. `matter_id` LINKS related proceedings (trial ↔ appeal ↔ cert,
+  duplicate/member dockets) but does NOT merge them for market generation.
+  **Appeals and cert petitions are always separate proceedings with their own
+  markets** — different court, question, and timeline than the trial case. Only
+  literal duplicate dockets and MDL member cases consolidated into an `In re`
+  actually collapse to one proceeding. The class-action wave
+  (Roberts/Reynolds/Risch/Jennings, refiled across districts) folds into `In re
+  KALSHI SPORTS PREDICTION MARKET LITIGATION`; consolidation is also an
+  annul/merge condition for any per-member markets. Of the current registry:
+  ~56 confirmed+active dockets → ~35–40 distinct market-generating proceedings
+  (~9 of them appeals).
+- States file in state court but the companies remove to federal — so
+  CourtListener covers most of the universe; a paid state-court vendor is
+  deferred until remand data says otherwise.
+- Optional secret `COURTLISTENER_API_TOKEN` raises CL rate limits (not set).
+
 ## Conventions
 - Trunk-based: commit straight to `main`, no feature branches (see global prefs).
 - `profiles`: `id` (row PK) vs `user_id` (auth uid) — see `documentation.md`; don't conflate.
