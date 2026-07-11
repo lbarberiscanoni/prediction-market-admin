@@ -7,6 +7,7 @@ import MarketStats from "@/components/analytics/MarketStats";
 import MarketActivityCharts from "@/components/analytics/MarketActivityCharts";
 import UserStatistics from "@/components/analytics/UserStatistics";
 import UserActivityCharts from "@/components/analytics/UserActivityCharts";
+import CalibrationChart from "@/components/analytics/CalibrationChart";
 
 type KpiTimeFilter = "2d" | "7d" | "30d";
 
@@ -103,7 +104,7 @@ export default function AnalyticsPage() {
   const [rawMarkets, setRawMarkets] = useState<Market[]>([]);
   const [loading, setLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
-  const [activeView, setActiveView] = useState<'user' | 'market'>('market');
+  const [activeView, setActiveView] = useState<'user' | 'market' | 'calibration'>('market');
   const [kpiTimeFilter, setKpiTimeFilter] = useState<KpiTimeFilter>("30d");
 
   const filteredUserStats = useMemo(() => {
@@ -347,19 +348,25 @@ export default function AnalyticsPage() {
           <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4 mb-6">
             <div>
               <h1 className="text-3xl font-bold mb-2">
-                {activeView === 'user' ? 'User Analytics' : 'Market Analytics'}
+                {activeView === 'user'
+                  ? 'User Analytics'
+                  : activeView === 'calibration'
+                  ? 'Calibration'
+                  : 'Market Analytics'}
               </h1>
               <p className="text-gray-400">
                 {activeView === 'user'
                   ? 'Prophet user engagement and activity statistics'
+                  : activeView === 'calibration'
+                  ? 'How well Prophet market prices match real-world outcomes'
                   : 'Prophet prediction market statistics and trends'
                 }
               </p>
             </div>
 
             <div className="flex flex-col sm:flex-row gap-3">
-              {/* KPI Time Filter */}
-              <div className="flex rounded-lg bg-gray-800 p-1">
+              {/* KPI Time Filter (not applicable to the calibration view) */}
+              <div className={`flex rounded-lg bg-gray-800 p-1 ${activeView === 'calibration' ? 'hidden' : ''}`}>
                 {(["2d", "7d", "30d"] as KpiTimeFilter[]).map((filter) => (
                   <button
                     key={filter}
@@ -402,6 +409,19 @@ export default function AnalyticsPage() {
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
                   </svg>
                   Market Analytics
+                </button>
+                <button
+                  onClick={() => setActiveView('calibration')}
+                  className={`px-6 py-3 rounded-md text-sm font-medium transition-colors flex items-center gap-2 ${
+                    activeView === 'calibration'
+                      ? "bg-green-600 text-white shadow-sm"
+                      : "text-gray-400 hover:text-gray-200"
+                  }`}
+                >
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 20L20 4M4 4h4m-4 0v4m12 8v4m0 0h-4" />
+                  </svg>
+                  Calibration
                 </button>
               </div>
             </div>
@@ -477,10 +497,18 @@ export default function AnalyticsPage() {
           </>
         )}
 
+        {/* Calibration View */}
+        {activeView === 'calibration' && <CalibrationChart />}
+
         {/* Footer */}
         <div className="mt-8 text-center text-gray-400 text-sm">
           <p>
-            {activeView === 'user' ? 'User analytics' : 'Market analytics'} updated in real-time
+            {activeView === 'user'
+              ? 'User analytics'
+              : activeView === 'calibration'
+              ? 'Calibration'
+              : 'Market analytics'}{' '}
+            updated in real-time
           </p>
         </div>
       </div>
