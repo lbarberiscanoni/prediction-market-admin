@@ -55,7 +55,7 @@ deployed version as truth.
 ### Scheduling — pg_cron is the source of truth (NOT this repo)
 All periodic work runs from **Supabase `pg_cron`**, configured in the database
 (not in git). Query it with `select jobid, jobname, schedule, active, command
-from cron.job;`. As of 2026-07-11 there are 6 active jobs (all times UTC):
+from cron.job;`. As of 2026-07-11 there are 7 active jobs (all times UTC):
 
 | jobid | jobname | schedule | function |
 |---|---|---|---|
@@ -64,10 +64,12 @@ from cron.job;`. As of 2026-07-11 there are 6 active jobs (all times UTC):
 | 1 | `daily-leaderboard-calculation` | `45 6 * * *` | `calculate-leaderboard` |
 | 2 | `auto-close-markets-daily` | `0 7 * * *` | `auto-close-markets` |
 | 21 | `stage-cycle-payout-daily` | `15 7 * * *` | `stage-cycle-payout` (guard self-throttles to ~14d) |
+| 22 | `sweep-court-cases-daily` | `0 8 * * *` | `sweep-court-cases` (court-market pipeline discovery) |
 | 19 | `reconcile-payouts-hourly` | `0 * * * *` | `reconcile-payouts` |
 
 The daily chain is intentional: create (06:00) → resolve (06:30) → leaderboard
-(06:45) → close (07:00) → stage bonus batch (07:15). To add/remove jobs use
+(06:45) → close (07:00) → stage bonus batch (07:15) → court sweep (08:00). To
+add/remove jobs use
 `cron.schedule('name','* * * * *', $job$ … $job$)` / `cron.unschedule('name')`;
 mirror the auth pattern of the existing jobs (anon Bearer token in the header).
 
@@ -196,7 +198,7 @@ mirroring the FRED pipeline (discover → create via `add-market` → resolve).
   triage; `discovery_methods` records provenance. Sweep owns discovery fields
   and overwrites them; curation fields (`status`, `company_role`, `case_type`,
   `matter_id`, `notes`) are never touched. Supports `{dry_run:true}`.
-  Idempotent. Not yet on a pg_cron schedule.
+  Idempotent. Scheduled: pg_cron `sweep-court-cases-daily` (`0 8 * * *`).
 - **Phase 2 (planned):** LLM decomposition — classify each case, instantiate
   market questions from a fixed template library (MTD/PI granted-by-date,
   class-cert-by-date, settlement final approval, appeal outcome, time-boxed
