@@ -140,6 +140,47 @@ pending ──activate-markets──▶ open ──auto-close-markets (close_dat
 
 ---
 
+## Data model (verified live 2026-07-11)
+
+`documentation.md` documents 6 tables (`markets`, `outcomes`, `payouts`,
+`predictions`, `profiles`, `leaderboards`). The live DB has **14** — the docs
+are incomplete. Full list with the extras called out:
+
+- **Core (documented):** `markets`, `outcomes`, `predictions`, `payouts`,
+  `profiles`, `leaderboards`.
+- **Undocumented but real:** `cycle_payouts` (staged leaderboard-bonus batches:
+  `status`, `items` jsonb, `approved_at`, `sent_at`), `payments` (payout ledger:
+  `player_id`, `payment_method` enum, `status` + `paypal_status`, `paypal_batch_id`).
+- **Test/sandbox mirror:** `test_markets`, `test_outcomes`, `test_predictions`,
+  `test_user` (used by the manual FRED button + experiments; separate from prod).
+- **Junk (ignore / candidates for cleanup):** `profiles_duplicate` (0 rows),
+  `profiles_duplicate1` (125 rows). Leftover copies — don't read/write these.
+
+Key column notes: `markets.status` is a Postgres enum (pending/open/closed/
+resolved/annulled); `markets.outcome_id` = winning outcome after resolution;
+`markets.target` = FRED threshold value; `markets.resolved_at` set on resolution.
+`profiles.is_admin` (boolean) is **real and load-bearing** — see auth below.
+Query live schema anytime via the recipe in memory `supabase-db-connection`.
+
+## Auth / admin gate
+`_shared/admin.ts` exports `requireAdmin(req)`: validates the caller's JWT
+(`/auth/v1/user`), then checks `profiles.is_admin === true` (via service role);
+returns `{userId}` or a 401/403 Response. **Only the two money-moving functions
+use it:** `send-paypal-payout` and `send-mturk-bonus`. So `is_admin` is the gate
+for real payouts — not a phantom column.
+
+## Deployment
+- **Frontend:** Next.js admin app deployed on **Vercel**. App env vars + the
+  edge-function/integration secrets are managed in **Vercel**.
+- **Backend:** Supabase edge functions read their secrets from **Supabase function
+  secrets** (`FRED_API_KEY`, `RESEND_API_KEY`, `PAYPAL_*`, `AWS_*`,
+  `SUPABASE_SERVICE_ROLE_KEY`) — confirmed working since the crons succeed.
+  ⚠️ `send-paypal-payout` / `reconcile-payouts` default `PAYPAL_API_BASE` to the
+  **sandbox** URL; verify the live secret is set for real payouts.
+- **Sibling public app:** https://github.com/lbarberiscanoni/prediction-market —
+  the public-facing platform; diff it to replicate features (see memory
+  `public-platform-sibling-repo`).
+
 ## Conventions
 - Trunk-based: commit straight to `main`, no feature branches (see global prefs).
 - `profiles`: `id` (row PK) vs `user_id` (auth uid) — see `documentation.md`; don't conflate.
