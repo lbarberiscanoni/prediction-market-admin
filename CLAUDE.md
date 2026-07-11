@@ -43,7 +43,7 @@ deployed version as truth.
 | `annul-market` | Voids a market; refunds all participants their net position. | `markets` (→`annulled`), `payouts` | Admin UI / manual |
 | `calculate-leaderboard` | Ranks users by P&L over eligible markets (open + recently-closed/resolved/annulled). | `leaderboards` | **pg_cron `45 6 * * *`** (`daily-leaderboard-calculation`) |
 | `market-notification` | Emails users (Resend) announcing newly created markets. Rate-limited. | — (sends email) | `get-fred-data` after creating markets |
-| `stage-cycle-payout` | Computes leaderboard-rank bonus batch, STAGES it as `pending_approval` (moves no money). ~14-day cadence. | `cycle_payouts` | ⚠️ **Not scheduled** (gap — designed for a schedule, currently only manual) |
+| `stage-cycle-payout` | Computes leaderboard-rank bonus batch, STAGES it as `pending_approval` (moves no money). ~14-day cadence. | `cycle_payouts` | **pg_cron `15 7 * * *`** (`stage-cycle-payout-daily`; internal 14-day guard self-throttles) |
 | `send-paypal-payout` | Pays a batch via PayPal Payouts API; logs to ledger. | `payments` | **Admin UI** (`invoke('send-paypal-payout')`) |
 | `reconcile-payouts` | Polls PayPal for terminal status of `Pending` PayPal payments; updates ledger. Moves no money. | `payments` | **pg_cron `0 * * * *`** (`reconcile-payouts-hourly`) |
 | `send-mturk-bonus` | Sends an Amazon MTurk worker bonus (legacy payout path). | — (MTurk API) | Admin UI / manual |
@@ -55,7 +55,7 @@ deployed version as truth.
 ### Scheduling — pg_cron is the source of truth (NOT this repo)
 All periodic work runs from **Supabase `pg_cron`**, configured in the database
 (not in git). Query it with `select jobid, jobname, schedule, active, command
-from cron.job;`. As of 2026-07-11 there are 5 active jobs (all times UTC):
+from cron.job;`. As of 2026-07-11 there are 6 active jobs (all times UTC):
 
 | jobid | jobname | schedule | function |
 |---|---|---|---|
@@ -63,19 +63,22 @@ from cron.job;`. As of 2026-07-11 there are 5 active jobs (all times UTC):
 | 14 | `daily-fred-resolution` | `30 6 * * *` | `resolve-fred-markets` |
 | 1 | `daily-leaderboard-calculation` | `45 6 * * *` | `calculate-leaderboard` |
 | 2 | `auto-close-markets-daily` | `0 7 * * *` | `auto-close-markets` |
+| 21 | `stage-cycle-payout-daily` | `15 7 * * *` | `stage-cycle-payout` (guard self-throttles to ~14d) |
 | 19 | `reconcile-payouts-hourly` | `0 * * * *` | `reconcile-payouts` |
 
 The daily chain is intentional: create (06:00) → resolve (06:30) → leaderboard
-(06:45) → close (07:00).
+(06:45) → close (07:00) → stage bonus batch (07:15). To add/remove jobs use
+`cron.schedule('name','* * * * *', $job$ … $job$)` / `cron.unschedule('name')`;
+mirror the auth pattern of the existing jobs (anon Bearer token in the header).
 
-**Dead config:** `.github/workflows/fred-daily.yml` is the *original* scheduler
-for `get-fred-data`, superseded by pg_cron `fred-daily-check` (same schedule &
-params). The workflow has not run since **2025-08-28** (dormant). If GitHub
-Actions is ever re-enabled it would **double-create markets** at 06:00 UTC. Treat
-pg_cron as authoritative.
+**History:** `.github/workflows/fred-daily.yml` was the *original* scheduler for
+`get-fred-data`, superseded by pg_cron `fred-daily-check`. It went dormant after
+**2025-08-28** and was **removed** (it would have double-created markets if
+GitHub Actions were re-enabled). pg_cron is the sole scheduler now.
 
-**Genuine gaps (no scheduler anywhere):** `stage-cycle-payout` (leaderboard bonus
-staging, designed for ~14-day cadence) and `activate-markets` (likely obsolete).
+**Remaining gap:** `activate-markets` has no scheduler — left unwired because it
+appears obsolete (`add-market` already creates markets as `open`). Confirm before
+relying on it.
 
 ---
 
