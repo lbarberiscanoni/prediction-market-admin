@@ -34,30 +34,48 @@ deployed version as truth.
 
 | Function | Purpose | Writes to | Triggered by |
 |---|---|---|---|
-| `get-fred-data` | Checks 16 FRED indicators for a release ~14 days out; for each, calls `add-market`. | (via `add-market`) | **`fred-daily.yml` cron** |
+| `get-fred-data` | Checks 16 FRED indicators for a release ~14 days out; for each, calls `add-market`. | (via `add-market`) | **pg_cron `0 6 * * *`** (`fred-daily-check`) |
 | `add-market` | Inserts a market + its outcomes. Service role. Default Yes/No @ 10000 tokens, `status:'open'`. | `markets`, `outcomes` | `get-fred-data`; callable directly |
-| `activate-markets` | Finds markets closing in ~15 days, searches FRED for a matching series, backfills outcomes/description, sets `status:'open'`. | `markets`, `outcomes` | Schedule (see gap below) |
-| `auto-close-markets` | Sets `open` markets whose `close_date` has passed to `closed`. | `markets` | Schedule (see gap below) |
-| `resolve-fred-markets` | For `closed` FRED markets, pulls latest FRED value, compares to `target`, resolves win/lose + payouts. | `markets` (→`resolved`), payouts | Schedule (see gap below) |
+| `activate-markets` | Finds markets closing in ~15 days, searches FRED for a matching series, backfills outcomes/description, sets `status:'open'`. | `markets`, `outcomes` | ⚠️ **Not scheduled** (possibly obsolete — `add-market` already creates markets as `open`) |
+| `auto-close-markets` | Sets `open` markets whose `close_date` has passed to `closed`. | `markets` | **pg_cron `0 7 * * *`** (`auto-close-markets-daily`) |
+| `resolve-fred-markets` | For `closed` FRED markets, pulls latest FRED value, compares to `target`, resolves win/lose + payouts. | `markets` (→`resolved`), payouts | **pg_cron `30 6 * * *`** (`daily-fred-resolution`) |
 | `resolve-market` | Manual resolution of one market by winning outcome; computes net shares & pays winners. | `markets` (→`resolved`), `payouts` | Admin UI / manual |
 | `annul-market` | Voids a market; refunds all participants their net position. | `markets` (→`annulled`), `payouts` | Admin UI / manual |
-| `calculate-leaderboard` | Ranks users by P&L over eligible markets (open + recently-closed/resolved/annulled). | `leaderboards` | Schedule (see gap below) |
+| `calculate-leaderboard` | Ranks users by P&L over eligible markets (open + recently-closed/resolved/annulled). | `leaderboards` | **pg_cron `45 6 * * *`** (`daily-leaderboard-calculation`) |
 | `market-notification` | Emails users (Resend) announcing newly created markets. Rate-limited. | — (sends email) | `get-fred-data` after creating markets |
-| `stage-cycle-payout` | Computes leaderboard-rank bonus batch, STAGES it as `pending_approval` (moves no money). ~14-day cadence. | `cycle_payouts` | Schedule (see gap below) |
+| `stage-cycle-payout` | Computes leaderboard-rank bonus batch, STAGES it as `pending_approval` (moves no money). ~14-day cadence. | `cycle_payouts` | ⚠️ **Not scheduled** (gap — designed for a schedule, currently only manual) |
 | `send-paypal-payout` | Pays a batch via PayPal Payouts API; logs to ledger. | `payments` | **Admin UI** (`invoke('send-paypal-payout')`) |
-| `reconcile-payouts` | Polls PayPal for terminal status of `Pending` PayPal payments; updates ledger. Moves no money. | `payments` | Schedule (pg_cron; see gap) |
+| `reconcile-payouts` | Polls PayPal for terminal status of `Pending` PayPal payments; updates ledger. Moves no money. | `payments` | **pg_cron `0 * * * *`** (`reconcile-payouts-hourly`) |
 | `send-mturk-bonus` | Sends an Amazon MTurk worker bonus (legacy payout path). | — (MTurk API) | Admin UI / manual |
 | `admin` | Signs AWS/MTurk requests (returns signed request / creds helper for MTurk). | — | Frontend helper |
 
 **In-repo before this doc:** only `send-mturk-bonus`, `send-paypal-payout`,
 `reconcile-payouts`, `_shared`. All 15 are now vendored.
 
-### ⚠️ Scheduling gap
-The **only** scheduler in this repo is `.github/workflows/fred-daily.yml`
-(→ `get-fred-data`). Functions marked "Schedule" above are written to run
-periodically (their comments say so), but their triggers are **NOT in this repo** —
-they're configured in Supabase (pg_cron / dashboard scheduled functions). To see
-what's actually scheduled, check the Supabase dashboard; don't assume from the repo.
+### Scheduling — pg_cron is the source of truth (NOT this repo)
+All periodic work runs from **Supabase `pg_cron`**, configured in the database
+(not in git). Query it with `select jobid, jobname, schedule, active, command
+from cron.job;`. As of 2026-07-11 there are 5 active jobs (all times UTC):
+
+| jobid | jobname | schedule | function |
+|---|---|---|---|
+| 8 | `fred-daily-check` | `0 6 * * *` | `get-fred-data` (`create_markets:true`) |
+| 14 | `daily-fred-resolution` | `30 6 * * *` | `resolve-fred-markets` |
+| 1 | `daily-leaderboard-calculation` | `45 6 * * *` | `calculate-leaderboard` |
+| 2 | `auto-close-markets-daily` | `0 7 * * *` | `auto-close-markets` |
+| 19 | `reconcile-payouts-hourly` | `0 * * * *` | `reconcile-payouts` |
+
+The daily chain is intentional: create (06:00) → resolve (06:30) → leaderboard
+(06:45) → close (07:00).
+
+**Dead config:** `.github/workflows/fred-daily.yml` is the *original* scheduler
+for `get-fred-data`, superseded by pg_cron `fred-daily-check` (same schedule &
+params). The workflow has not run since **2025-08-28** (dormant). If GitHub
+Actions is ever re-enabled it would **double-create markets** at 06:00 UTC. Treat
+pg_cron as authoritative.
+
+**Genuine gaps (no scheduler anywhere):** `stage-cycle-payout` (leaderboard bonus
+staging, designed for ~14-day cadence) and `activate-markets` (likely obsolete).
 
 ---
 
