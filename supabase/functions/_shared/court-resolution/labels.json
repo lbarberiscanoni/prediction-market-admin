@@ -1,0 +1,75 @@
+{
+  "_comment": "Ground-truth labels for the resolution classifier, hand-assigned from reading each docket's terminal entries (2026-07-11). Keyed by fixture slug. The eval asserts the classifier reproduces recommended_market_action (the money-affecting decision); classification and is_merits are also checked. Add a new entry whenever a real case terminates.",
+  "flaherty-appeal-ca3": {
+    "classification": "appeal_affirmed",
+    "recommended_market_action": "resolve",
+    "is_merits_resolution": true,
+    "note": "3rd Cir.: 'JUDGMENT, Affirmed' + PRECEDENTIAL OPINION + MANDATE ISSUED. Cleanest possible outcome."
+  },
+  "cftc-appeal-cadc": {
+    "classification": "appeal_dismissed",
+    "recommended_market_action": "annul",
+    "is_merits_resolution": false,
+    "note": "D.C. Cir.: CFTC filed UNOPPOSED MOTION to dismiss its own appeal voluntarily; PER CURIAM ORDER granted it. No appellate merits ruling -> annul."
+  },
+  "washington-wawd": {
+    "classification": "remanded_to_state",
+    "recommended_market_action": "annul",
+    "is_merits_resolution": false,
+    "note": "W.D. Wash.: 'LETTER ... Remanding Case to State Court' (King County Superior Court). We go blind after remand -> annul."
+  },
+  "illinois-gr-ilnd": {
+    "classification": "remanded_to_state",
+    "recommended_market_action": "annul",
+    "is_merits_resolution": false,
+    "note": "N.D. Ill.: MEMORANDUM Opinion granting plaintiff's motion to remand. Back to state court -> annul."
+  },
+  "ohio-gr-ohnd": {
+    "classification": "remanded_to_state",
+    "recommended_market_action": "annul",
+    "is_merits_resolution": false,
+    "note": "N.D. Ohio: 'Order of Remand' granting motions to remand; remanded to Mahoning County Court of Common Pleas -> annul."
+  },
+  "nessel-miwd": {
+    "classification": "remanded_to_state",
+    "recommended_market_action": "annul",
+    "is_merits_resolution": false,
+    "note": "W.D. Mich.: 'granting in part and denying in part motion to remand; Case is remanded back to Ingham County Circuit Court'. Partial-grant wrinkle but net = remanded -> annul."
+  },
+  "roberts-kywd": {
+    "classification": "transferred",
+    "recommended_market_action": "annul",
+    "is_merits_resolution": false,
+    "note": "W.D. Ky.: 'ORDER GRANTING JOINT MOTION TO TRANSFER VENUE TO THE SOUTHERN DISTRICT OF NEW YORK'; case reopened in SDNY. This docket is dead -> annul (tracking follows the SDNY case)."
+  },
+  "risch-cacd": {
+    "classification": "transferred",
+    "recommended_market_action": "annul",
+    "is_merits_resolution": false,
+    "note": "C.D. Cal.: 'ORDER GRANTING MOTION TO TRANSFER VENUE'; action transferred out -> annul."
+  },
+  "pelayo-nysd": {
+    "classification": "consolidated",
+    "recommended_market_action": "annul",
+    "is_merits_resolution": false,
+    "note": "SDNY: 'CONSOLIDATED MEMBER CASE: Create association to 1:25-cv-08585' + STIPULATION TO CONSOLIDATE. Merged into the lead case -> annul."
+  },
+  "josephson-nysd": {
+    "classification": "voluntarily_dismissed",
+    "recommended_market_action": "annul",
+    "is_merits_resolution": false,
+    "note": "SDNY: 'NOTICE OF VOLUNTARY DISMISSAL pursuant to Rule 41(a)(1)(A)(i)'. Plaintiff dropped it (often without prejudice) -> annul, not a defendant merits win."
+  },
+  "nevada-kalshi-nvd": {
+    "classification": "remanded_to_state",
+    "recommended_market_action": "annul",
+    "is_merits_resolution": false,
+    "note": "D. Nev. #63: 'It is further ordered that this case is remanded to the First Judicial Court of Nevada, Carson City ... close this case.' Kalshi's notice of appeal is OF the remand order, but the disposition is a remand to state court -> annul. (Corrected from an initial district_terminated_appealed mislabel — the eval caught it; the full order text is dispositive.)"
+  },
+  "nevada-blockratize-nvd": {
+    "classification": "remanded_to_state",
+    "recommended_market_action": "annul",
+    "is_merits_resolution": false,
+    "note": "D. Nev. #53: 'Polymarket's motion for stay pending appeal ... is denied. It is further ordered that this case is remanded to the First Judicial Court of Nevada, Carson City' (mailing delayed to 4/6/26). Remand to state court -> annul. (Corrected from an initial mislabel — see nevada-kalshi note.)"
+  }
+}
