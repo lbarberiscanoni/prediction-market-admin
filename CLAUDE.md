@@ -5,6 +5,13 @@ fast orientation map. Deeper references already exist and are still canonical:
 
 - [`documentation.md`](documentation.md) — DB schema, custom types, module catalog, leaderboard payout schedule.
 - [`README.md`](README.md) — product overview, frontend structure, roadmap, changelog.
+- [`market-data-models-survey.md`](market-data-models-survey.md) — design reference for the
+  events/market_specs proposal below: how Polymarket/Kalshi/Manifold structure markets as
+  data (§1–5), Gnosis CTF (§6), roadmap concepts — conditional/multi-choice/combination
+  markets (§7), Hanson LMSR (§8), higher-order forecasts (§9), Paradigm pm-AMM (§10),
+  Metaculus/Augur/PredictIt/Futuur/Betfair/Metaforecast/INFER (§11–13), and the
+  consolidated missing-pieces list (§14: conditional cascade, suspended state,
+  annulled≠ambiguous, outcome withdrawal, payout vectors, template provenance).
 
 **Read this file first when the question is "how does X actually happen".** Most
 of the real work happens in **Supabase Edge Functions**, not in this Next.js app —
@@ -204,9 +211,18 @@ mirroring the FRED pipeline (discover → create via `add-market` → resolve).
   class-cert-by-date, settlement final approval, appeal outcome, time-boxed
   termination), generate machine-checkable resolution specs, adversarially
   verify, land in a human review queue. Needs `ANTHROPIC_API_KEY` secret.
-- **Phase 3 (planned):** review UI → `add-market`; `resolve-court-markets`
-  watcher classifying new docket entries into a pending-approval resolution
-  queue (never auto-resolve).
+- **Phase 3 (in progress — TDD first):** the resolution *classifier* is built
+  test-first in [`supabase/functions/_shared/court-resolution/`](supabase/functions/_shared/court-resolution/):
+  `classifyDocket()` (Opus 4.8, structured outputs) maps a case's docket entries
+  → terminal-event classification + recommended market action (resolve / **annul**
+  / continue) + quoted evidence. A golden-set eval (`classify_eval.ts`) runs it
+  over 12 frozen real dockets and asserts hand-labeled ground truth — 13/13
+  green. Run: `deno test --allow-env --allow-read --allow-net
+  supabase/functions/_shared/court-resolution/classify_eval.ts` (needs
+  `ANTHROPIC_API_KEY`). Every new real termination → new fixture + label. Still
+  to build: the `resolve-court-markets` watcher that fetches new entries and files
+  proposals into a pending-approval queue (never auto-resolve), and the
+  deterministic step that applies an outcome to a specific market's spec.
 
 ### Proposed events data model (DESIGN ONLY — Lorenzo still deciding, do not build)
 
@@ -240,6 +256,14 @@ hand-created `kind='custom'` events (lean yes); multi-outcome specs for appeals
 (lean yes — `outcomes` already supports ≥2); require a spec for every new
 event-linked market (lean yes, legacy exempt).
 
+Roadmap concepts added 2026-07-11 (detailed in
+[`market-data-models-survey.md`](market-data-models-survey.md) §7): (1)
+conditional markets — precondition edge on a spec/event; precondition fails →
+staged annulment via `annul-market`; (2) multiple-choice markets — closed
+small set → one N-outcome market, open/large set → event-grouped binaries
+with exclusivity flag; (3) combinations ("if A, then B or C") = (1)+(2) via a
+typed `event_links` edge table, which generalizes `matter_id`.
+
 Known gaps / design notes:
 - Appellate dockets under-match on `party_name` (sparse party data in
   CourtListener's appellate coverage) — needs a supplementary full-text pass.
@@ -259,7 +283,26 @@ Known gaps / design notes:
 - States file in state court but the companies remove to federal — so
   CourtListener covers most of the universe; a paid state-court vendor is
   deferred until remand data says otherwise.
-- Optional secret `COURTLISTENER_API_TOKEN` raises CL rate limits (not set).
+- **State-level cases are DEFERRED (revisit later).** CourtListener/RECAP is
+  federal-only (PACER). Empirically (Washington v. KalshiEX), when a removed
+  case is **remanded to state court** we go blind — no further docket entries.
+  So for now: markets on removed cases must **annul at remand**, and we are NOT
+  attempting to track/resolve anything once it's in state court. Figuring out
+  state-court coverage (a paid vendor, or manual tracking) is a separate future
+  workstream, not part of the current CourtListener-based pipeline.
+- **Resolution reliability (empirically checked 2026-07-11):** CL docket *text*
+  is good enough to detect terminal events (Affirmed/Reversed/Mandate,
+  Remanded, Transfer Venue, Denying/Granting) and coverage is current for these
+  high-profile dockets. BUT `date_terminated` ≠ merits resolution — 3 of 4
+  sampled terminations were remand/transfer/appeal, not a win/loss. Resolution
+  MUST classify the terminal entry's text (merits-win / merits-loss / remanded /
+  transferred / appealed / voluntarily-dismissed) with human approval and
+  **annul as a common first-class outcome** — never auto-settle on termination.
+  Appeals resolve cleanest. Optional: CL **docket alerts** make CL actively poll
+  PACER to guarantee the resolving entry appears promptly.
+- Secret `COURTLISTENER_API_TOKEN` is SET (EDU-tier token, in Supabase secrets +
+  `.env.local`) — unlocks docket-entries/documents endpoints; per-case on-demand
+  fetching is cheap under EDU limits.
 
 ## Conventions
 - Trunk-based: commit straight to `main`, no feature branches (see global prefs).
