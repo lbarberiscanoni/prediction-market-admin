@@ -206,6 +206,16 @@ mirroring the FRED pipeline (discover → create via `add-market` → resolve).
   and overwrites them; curation fields (`status`, `company_role`, `case_type`,
   `matter_id`, `notes`) are never touched. Supports `{dry_run:true}`.
   Idempotent. Scheduled: pg_cron `sweep-court-cases-daily` (`0 8 * * *`).
+  Pure logic (alias list, court-level classification, party confirmation) is
+  extracted to [`_shared/court-discovery.ts`](supabase/functions/_shared/court-discovery.ts)
+  and unit-tested (`court-discovery_test.ts`, 8 tests — the `ca`-prefix and
+  `Adventure One` traps). **Rate limit (important):** CourtListener's
+  authenticated cap is **10 requests/min**; in-function throttling can't beat
+  the edge runtime's ~50s wall-clock, so the sweep fetches **page 1 only** (8
+  requests, ~7s) — new filings sort to the top, so this catches every new case;
+  the backlog is already seeded and per-case resolution fetches entries
+  directly. `{max_pages:N}` raises pagination for a one-off resync but risks
+  429s + wall-clock; keep it ≤1 on the cron path.
 - **Phase 2 (planned):** LLM decomposition — classify each case, instantiate
   market questions from a fixed template library (MTD/PI granted-by-date,
   class-cert-by-date, settlement final approval, appeal outcome, time-boxed

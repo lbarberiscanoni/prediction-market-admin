@@ -25,41 +25,12 @@ const CORS = {
 const json = (body: unknown, status = 200) =>
   new Response(JSON.stringify(body), { status, headers: { 'Content-Type': 'application/json', ...CORS } });
 
-// Company alias list. party_name is a substring match on CourtListener, so
-// 'Kalshi' also matches 'KalshiEX LLC'. Polymarket's legal entities are
-// Blockratize Inc. and Adventure One QSS Inc. — the brand name alone misses
-// nearly everything.
-const ALIASES: Array<{ company: string; terms: string[] }> = [
-  { company: 'kalshi', terms: ['Kalshi'] },
-  // 'Adventure One' alone substring-matches ~130 unrelated dockets; the full
-  // entity name is required for precision.
-  { company: 'polymarket', terms: ['Polymarket', 'Blockratize', 'Adventure One QSS'] },
-];
-
-const TERMS_BY_COMPANY: Record<string, string[]> = Object.fromEntries(ALIASES.map((a) => [a.company, a.terms]));
-
-// A docket is "party-confirmed" when one of the matched company's aliases
-// literally appears in the case name or the party list — i.e. the company is
-// actually a party, not merely mentioned in the docket text. party_name hits
-// are confirmed by construction; full-text hits may not be.
-const isPartyConfirmed = (r: ClResult, companies: Set<string>): boolean => {
-  const haystack = [r.caseName ?? '', ...(r.party ?? [])].join(' | ').toLowerCase();
-  for (const company of companies) {
-    for (const term of TERMS_BY_COMPANY[company] ?? []) {
-      if (haystack.includes(term.toLowerCase())) return true;
-    }
-  }
-  return false;
-};
+// Pure discovery logic (alias list, court-level classification, party
+// confirmation) lives in ../_shared/court-discovery.ts and is unit-tested there.
+import { COMPANY_ALIASES as ALIASES, courtLevel, partyConfirmed } from '../_shared/court-discovery.ts';
 
 const CL_BASE = 'https://www.courtlistener.com/api/rest/v4/search/';
 const MAX_PAGES_PER_TERM = 10; // 20 results/page -> 200 dockets per term, ample headroom
-
-// Appellate court ids: ca1..ca11, cadc, cafc, scotus. District ids like 'cacd'
-// (C.D. Cal.) also start with 'ca', hence the anchored pattern.
-const isAppellate = (courtId: string) => /^ca(\d{1,2}|dc|fc)$/.test(courtId);
-const courtLevel = (courtId: string | null) =>
-  courtId === 'scotus' ? 'scotus' : courtId && isAppellate(courtId) ? 'appellate' : 'district';
 
 interface ClResult {
   docket_id: number;
@@ -98,6 +69,14 @@ serve(async (req) => {
   try {
     const body = await req.json().catch(() => ({}));
     const dryRun = body?.dry_run === true;
+    // Page 1 only by default: new filings sort to the top (dateFiled desc), so
+    // 8 requests (4 terms × 2 methods) catch every new case while staying well
+    // under CourtListener's 10/min authenticated cap AND inside the edge
+    // runtime's wall-clock limit (~7s). The 154-row backlog is already seeded;
+    // per-case resolution fetches docket entries directly, so a daily full
+    // re-paginate isn't needed. `max_pages` can raise this for a one-off resync,
+    // but keep it ≤1 for the pg_cron path (more pages risks 429s + wall-clock).
+    const maxPages = Math.min(Number(body?.max_pages) || 1, MAX_PAGES_PER_TERM);
 
     // 1. Sweep CourtListener for every alias, merging by docket id. A docket
     // hit by multiple terms/companies/methods accumulates all of them.
@@ -111,14 +90,30 @@ serve(async (req) => {
     const merged = new Map<number, { r: ClResult; companies: Set<string>; terms: Set<string>; methods: Set<string> }>();
     const sweepErrors: Array<{ term: string; method: string; error: string }> = [];
 
+    // Safety net for CourtListener's 10/min authenticated cap: the default
+    // 8-request run stays under it, but if a 429 slips through (e.g. an
+    // overlapping run), honor Retry-After once. Only one retry, so a saturated
+    // window can't stack sleeps past the edge runtime's wall-clock limit.
+    const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+    const clFetch = async (url: string): Promise<Response> => {
+      const headers: Record<string, string> = CL_TOKEN ? { Authorization: `Token ${CL_TOKEN}` } : {};
+      let res = await fetch(url, { headers });
+      if (res.status === 429) {
+        const retryAfter = Number(res.headers.get('retry-after')) || 40;
+        await sleep((retryAfter + 1) * 1000);
+        res = await fetch(url, { headers });
+      }
+      return res;
+    };
+
     const runPass = async (company: string, term: string, method: 'party_name' | 'full_text') => {
       const param = method === 'party_name' ? `party_name=${encodeURIComponent(term)}` : `q=${encodeURIComponent(`"${term}"`)}`;
       try {
         let url: string | null = `${CL_BASE}?type=r&${param}&order_by=dateFiled%20desc`;
-        for (let page = 0; url && page < MAX_PAGES_PER_TERM; page++) {
-          const res = await fetch(url, { headers: CL_TOKEN ? { Authorization: `Token ${CL_TOKEN}` } : {} });
+        for (let page = 0; url && page < maxPages; page++) {
+          const res: Response = await clFetch(url);
           if (!res.ok) throw new Error(`CourtListener ${res.status}: ${await res.text()}`);
-          const data = await res.json();
+          const data: { results?: ClResult[]; next?: string | null } = await res.json();
           for (const r of (data.results ?? []) as ClResult[]) {
             const entry = merged.get(r.docket_id) ?? { r, companies: new Set(), terms: new Set(), methods: new Set() };
             entry.r = r; // keep latest full record
@@ -164,7 +159,7 @@ serve(async (req) => {
       companies: [...e.companies].sort(),
       search_terms_matched: [...e.terms].sort(),
       discovery_methods: [...e.methods].sort(),
-      party_confirmed: isPartyConfirmed(e.r, e.companies),
+      party_confirmed: partyConfirmed(e.r.caseName, e.r.party ?? [], e.companies),
       absolute_url: e.r.docket_absolute_url ? `https://www.courtlistener.com${e.r.docket_absolute_url}` : null,
       raw: e.r,
       updated_at: new Date().toISOString(),
