@@ -229,14 +229,20 @@ mirroring the FRED pipeline (discover → create via `add-market` → resolve).
   over 12 frozen real dockets and asserts hand-labeled ground truth — 13/13
   green. Run: `deno test --allow-env --allow-read --allow-net
   supabase/functions/_shared/court-resolution/classify_eval.ts` (needs
-  `ANTHROPIC_API_KEY`). Every new real termination → new fixture + label. Still
-  to build: the `resolve-court-markets` watcher that fetches new entries and files
-  proposals into a pending-approval queue (never auto-resolve), and the
-  deterministic step that applies an outcome to a specific market's spec.
+  `ANTHROPIC_API_KEY`). Every new real termination → new fixture + label.
+  The **deterministic settlement step** is built + unit-tested:
+  [`resolve.ts`](supabase/functions/_shared/court-resolution/resolve.ts)
+  `applyResolution(spec, verdict)` maps a market's `resolution_spec` (from
+  `market_specs.params`) + the classifier verdict → `resolve` (a specific
+  outcome) / `annul` / `continue` / `review` — never guesses (unmapped
+  classification → human review). `resolve_test.ts` (7 pure tests, no LLM)
+  covers it against the golden labels. Still to build: the `resolve-court-markets`
+  watcher that fetches new entries, runs `classifyDocket`, and files proposals
+  into a pending-approval queue (never auto-resolve).
 
-### Proposed events data model (DESIGN ONLY — Lorenzo still deciding, do not build)
+### Events data model — schema LIVE (Phase A applied, inert)
 
-Generalization discussed 2026-07-11: separate *events* (facts about the world,
+Generalization: separate *events* (facts about the world,
 heterogeneous) from *markets* (bets, uniform) — the Kalshi `series → event →
 market` shape. Layers:
 
@@ -259,12 +265,17 @@ ever; (2) jsonb stores *parameters*, git-versioned resolver code stores *logic*
 (no resolution DSL). Registry→event promotion is load-bearing: 154 court rows →
 ~35–40 events; noise never reaches the canonical layer. One event can carry a
 market ladder (MTD/cert/outcome; multi-strike FRED). A new domain = registry +
-templates + resolver adapter, nothing else changes. Migration path: (A) create
-`events` + `market_specs` + `markets.event_id`, inert; (B) court pipeline
-targets it; (C) optionally retrofit FRED (event per release). Open questions:
-hand-created `kind='custom'` events (lean yes); multi-outcome specs for appeals
-(lean yes — `outcomes` already supports ≥2); require a spec for every new
-event-linked market (lean yes, legacy exempt).
+templates + resolver adapter, nothing else changes. Migration path: **(A) DONE**
+— `events` + `market_specs` + `markets.event_id` created inert (migration
+`20260712000000`, admin-only RLS, nothing writes to them yet); (B) court
+pipeline targets it (promote confirmed+active proceedings → events, draft specs
+into `market_specs`, approve → mint markets via `add-market`); (C) optionally
+retrofit FRED (event per release). `market_specs.params` carries the
+`ResolutionSpec` consumed by [`resolve.ts`](supabase/functions/_shared/court-resolution/resolve.ts).
+Resolved open questions (all yes): hand-created `kind='custom'` events;
+multi-outcome specs for appeals (`outcomes` already supports ≥2); every new
+event-linked market requires a spec (legacy/FRED markets exempt via nullable
+`event_id`).
 
 Roadmap concepts added 2026-07-11 (detailed in
 [`market-data-models-survey.md`](market-data-models-survey.md) §7): (1)
