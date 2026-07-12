@@ -1,0 +1,8 @@
+{
+  "//": "Test runner for the Supabase edge-function logic (court-market pipeline). The Next.js app is built with npm/Next and ignores this file; this is only for `deno test`. See supabase/functions/_shared/court-resolution/README.md.",
+  "tasks": {
+    "test": "deno test supabase/functions/_shared/court-discovery_test.ts",
+    "test:resolution": "deno test --allow-env --allow-read --allow-net supabase/functions/_shared/court-resolution/classify_eval.ts",
+    "test:all": "deno task test && deno task test:resolution"
+  }
+}
