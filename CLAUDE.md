@@ -216,11 +216,24 @@ mirroring the FRED pipeline (discover → create via `add-market` → resolve).
   the backlog is already seeded and per-case resolution fetches entries
   directly. `{max_pages:N}` raises pagination for a one-off resync but risks
   429s + wall-clock; keep it ≤1 on the cron path.
-- **Phase 2 (planned):** LLM decomposition — classify each case, instantiate
-  market questions from a fixed template library (MTD/PI granted-by-date,
-  class-cert-by-date, settlement final approval, appeal outcome, time-boxed
-  termination), generate machine-checkable resolution specs, adversarially
-  verify, land in a human review queue. Needs `ANTHROPIC_API_KEY` secret.
+- **Phase 2 (in progress — TDD):** drafting = turn a case into draft
+  `market_specs`, one per applicable template. The **template library** and
+  **drafter** are built + unit-tested
+  ([`templates.ts`](supabase/functions/_shared/court-resolution/templates.ts),
+  [`draft.ts`](supabase/functions/_shared/court-resolution/draft.ts)): each
+  template is git-versioned code carrying a baked-in `resolution_map`
+  (classification → outcome/ANNUL), so the LLM never invents resolution logic.
+  `draftSpecs(case)` selects applicable templates deterministically and emits
+  drafts whose `params` IS the `ResolutionSpec` the settlement resolver
+  consumes — draft and settle lock together (a round-trip test proves it).
+  Today's templates: `appeal_outcome`, `state_remand` (a "will it be remanded?"
+  market — which drove the resolver to be **map-first**: a market's own spec is
+  authoritative for its own question, overriding the classifier's generic
+  annul). `draft_test.ts` (8 pure tests) covers selection + invariants +
+  round-trip. Still to add: more templates (MTD/PI granted-by-date,
+  class-cert-by-date, settlement final approval), an LLM pass to refine question
+  wording / close-date estimates + adversarially verify, and the human review
+  queue. Needs `ANTHROPIC_API_KEY` secret for the LLM pass.
 - **Phase 3 (in progress — TDD first):** the resolution *classifier* is built
   test-first in [`supabase/functions/_shared/court-resolution/`](supabase/functions/_shared/court-resolution/):
   `classifyDocket()` (Opus 4.8, structured outputs) maps a case's docket entries

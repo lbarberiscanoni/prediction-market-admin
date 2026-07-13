@@ -43,10 +43,32 @@ export function applyResolution(
   spec: ResolutionSpec,
   verdict: ClassifierVerdict,
 ): Settlement {
-  // The classifier annuls procedural redirects (remand, transfer, consolidation,
-  // voluntary/appeal dismissal). Always honor that — spec-independent.
+  // Map-first: the market's OWN spec is authoritative for its OWN question.
+  // A market that asks about a procedural event (e.g. "will this be remanded?")
+  // maps that classification to an outcome and must resolve — even though the
+  // classifier's generic recommendation for a remand is "annul". So consult the
+  // resolution_map before falling back to the classifier's default action.
+  const mapped = spec.resolution_map[verdict.classification];
+  if (mapped !== undefined) {
+    if (mapped === ANNUL) {
+      return { action: "annul", reason: `resolution_map maps ${verdict.classification} → ANNUL` };
+    }
+    if (!spec.outcomes.includes(mapped)) {
+      return {
+        action: "review",
+        reason: `resolution_map outcome "${mapped}" is not one of the market's outcomes [${spec.outcomes.join(", ")}]`,
+      };
+    }
+    return { action: "resolve", winning_outcome: mapped, reason: `${verdict.classification} → ${mapped}` };
+  }
+
+  // Classification is not part of THIS market's question. Fall back to the
+  // classifier's generic recommendation:
+  //  - annul: a procedural redirect irrelevant to this market (case left, merged, dropped)
+  //  - continue/no_action: nothing terminal happened
+  //  - resolve: the classifier sees a merits outcome this spec doesn't cover → human review
   if (verdict.recommended_market_action === "annul") {
-    return { action: "annul", reason: `classified ${verdict.classification} — procedural, no merits outcome` };
+    return { action: "annul", reason: `classified ${verdict.classification} — procedural redirect, not this market's question` };
   }
   if (
     verdict.recommended_market_action === "continue_tracking" ||
@@ -54,24 +76,8 @@ export function applyResolution(
   ) {
     return { action: "continue", reason: `no terminal event (${verdict.classification})` };
   }
-
-  // recommended_market_action === "resolve": map the classification to a
-  // winning outcome via the spec. Never guess.
-  const mapped = spec.resolution_map[verdict.classification];
-  if (mapped === undefined) {
-    return {
-      action: "review",
-      reason: `classification "${verdict.classification}" has no entry in this spec's resolution_map`,
-    };
-  }
-  if (mapped === ANNUL) {
-    return { action: "annul", reason: `resolution_map maps ${verdict.classification} → ANNUL` };
-  }
-  if (!spec.outcomes.includes(mapped)) {
-    return {
-      action: "review",
-      reason: `resolution_map outcome "${mapped}" is not one of the market's outcomes [${spec.outcomes.join(", ")}]`,
-    };
-  }
-  return { action: "resolve", winning_outcome: mapped, reason: `${verdict.classification} → ${mapped}` };
+  return {
+    action: "review",
+    reason: `classifier recommends resolve on "${verdict.classification}" but this spec's resolution_map does not cover it`,
+  };
 }
