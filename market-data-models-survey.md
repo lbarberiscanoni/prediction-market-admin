@@ -1123,7 +1123,26 @@ structure deleted, and the platform-roadmap pieces (7.1–7.3 — Lorenzo's
 requirements, not research artifacts) restored in a more modular form.
 **Four small tables + one column now; one more table with phase 3.**
 
-### The migration
+> **As built (2026-07-13) — reconcile with prod.** The SQL below is the
+> conceptual design. The LIVE schema (migrations `20260712000000`,
+> `20260712000100`, `20260713000000`, `20260713000100`) differs in specifics,
+> and prod is the source of truth:
+> - **`bigint generated always as identity`** keys, not uuid (matches the
+>   existing trading core).
+> - `events` uses **`source_ref`** (+ `details` jsonb) for registry provenance,
+>   not `registry_table`/`registry_id`.
+> - `market_specs` has a **`status`** column (`draft→approved→live→resolved→
+>   annulled→rejected`) the deployed watcher filters on — kept over the
+>   `review_reason`/`audit` sketch because it was already built and working.
+> - **`resolution_proposals`** (watcher audit log + review queue) is the live
+>   form of the resolution-tracking idea, not columns on the spec.
+> - **`event_links` was NOT built** — designed here, deferred (not needed for
+>   the 7.1–7.3 market types; `spec_conditions` carries conditionality).
+> - `spec_conditions` and `events.mutually_exclusive` are live exactly as
+>   described. `payouts.outcome_id` was made nullable to record annulment
+>   refunds (see §"Market lifecycle" note in CLAUDE.md).
+
+### The migration (conceptual — see "As built" above for live specifics)
 
 ```sql
 create table events (

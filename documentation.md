@@ -55,8 +55,9 @@ Enum values: `'PayPal'`, `'MTurk'`
 | close_date | date | YES |  |  |  |
 | link | text | YES |  |  |  |
 | target | double precision | YES |  |  |  |
+| event_id | bigint | YES |  |  | FK to events (null for legacy/FRED markets) |
 
-**Relations:** `markets.outcome_id` → `outcomes.id` (FK)
+**Relations:** `markets.outcome_id` → `outcomes.id` (FK), `markets.event_id` → `events.id` (FK)
 
 ### outcomes
 | Column | Type | Null | Default | Index | Notes |
@@ -79,7 +80,7 @@ Enum values: `'PayPal'`, `'MTurk'`
 | payout_amount | double precision | NO |  |  |  |
 | user_id | uuid | NO |  |  |  |
 | market_id | bigint | NO |  |  | FK to markets |
-| outcome_id | bigint | NO |  |  | FK to outcomes |
+| outcome_id | bigint | YES |  |  | FK to outcomes; **null for annulment refunds** (no winning outcome) |
 
 **Relations:** `payouts.market_id` → `markets.id` (FK), `payouts.outcome_id` → `outcomes.id` (FK)
 
@@ -116,6 +117,40 @@ Enum values: `'PayPal'`, `'MTurk'`
 | enable_email_notifications | boolean | YES | false |  |  |
 
 **Relations:** None
+
+### events layer (LIVE 2026-07-13, mostly inert)
+
+Separates *events* (facts about the world) from *markets* (bets). See CLAUDE.md
+"Events data model" and `market-data-models-survey.md` §15. All admin-only RLS;
+edge functions use the service role. Nothing writes to these yet (Phase B).
+
+**events** — the canonical referent. `id` bigint PK · `created_at`/`updated_at` ·
+`kind` text (`court_case`/`fred_release`/`custom`) · `title` text · `status` text
+(`open`/`closed`/`resolved`/`annulled`) · `mutually_exclusive` bool default false
+(this event's markets form an exclusive ladder) · `details` jsonb · `source_ref`
+text (pointer back to a registry row).
+
+**market_specs** — bridge + review queue + resolution binding. `id` bigint PK ·
+`event_id` → events · `template_id` text (names a git template) · `question` text ·
+`params` jsonb (the `ResolutionSpec` the resolver consumes) · `justification` text ·
+`close_date` date · `market_id` → markets (set once minted) · `status` text
+(`draft`/`approved`/`live`/`resolved`/`annulled`/`rejected`).
+
+**spec_conditions** — conditional/combination markets; N rows on one spec = AND.
+`id` bigint PK · `market_spec_id` → market_specs (cascade delete) · exactly one of
+`condition_spec_id` → market_specs / `condition_event_id` → events · `required_outcome`
+text (what keeps the market alive) · `note` text. Any condition resolving contrary
+(or ambiguous/annulled/abandoned) stages annulment.
+
+**resolution_proposals** — watcher audit log + human review queue. `id` bigint PK ·
+`spec_id` → market_specs · `market_id` → markets · `event_kind` text · `action` text
+(`resolve`/`annul`/`review`) · `winning_outcome` text · `reason` text · `verdict`
+jsonb (classification + evidence + confidence) · `status` text
+(`pending`/`approved`/`rejected`/applied) · `reviewed_at` · `reviewed_by`. Confident
+verdicts auto-execute and log here; `review`/low-confidence queue as `pending`.
+
+Not built: `event_links` (matter/navigation graph) — designed in survey §15,
+deferred until the graph is needed.
 
 ## Directory map (one-liners)
 | Dir | Role | Notes |

@@ -153,11 +153,15 @@ pending ──activate-markets──▶ open ──auto-close-markets (close_dat
 ## Data model (verified live 2026-07-11)
 
 `documentation.md` documents 6 tables (`markets`, `outcomes`, `payouts`,
-`predictions`, `profiles`, `leaderboards`). The live DB has **14** — the docs
+`predictions`, `profiles`, `leaderboards`). The live DB has **19** — the docs
 are incomplete. Full list with the extras called out:
 
 - **Core (documented):** `markets`, `outcomes`, `predictions`, `payouts`,
   `profiles`, `leaderboards`.
+- **Events layer (LIVE, mostly inert — see "Events data model" below):**
+  `events`, `market_specs`, `spec_conditions` (conditional/combination markets;
+  N rows = AND), `resolution_proposals` (watcher audit log + review queue).
+- **Court registry:** `court_cases` (CourtListener discovery; see court pipeline).
 - **Undocumented but real:** `cycle_payouts` (staged leaderboard-bonus batches:
   `status`, `items` jsonb, `approved_at`, `sent_at`), `payments` (payout ledger:
   `player_id`, `payment_method` enum, `status` + `paypal_status`, `paypal_batch_id`).
@@ -169,6 +173,9 @@ are incomplete. Full list with the extras called out:
 Key column notes: `markets.status` is a Postgres enum (pending/open/closed/
 resolved/annulled); `markets.outcome_id` = winning outcome after resolution;
 `markets.target` = FRED threshold value; `markets.resolved_at` set on resolution.
+`markets.event_id` (nullable) links a market to its `events` row (null for
+legacy/FRED). `payouts.outcome_id` is **nullable** (as of 2026-07-13) so
+annulment refunds — which have no winning outcome — can be recorded.
 `profiles.is_admin` (boolean) is **real and load-bearing** — see auth below.
 Query live schema anytime via the recipe in memory `supabase-db-connection`.
 
@@ -293,24 +300,40 @@ ever; (2) jsonb stores *parameters*, git-versioned resolver code stores *logic*
 ~35–40 events; noise never reaches the canonical layer. One event can carry a
 market ladder (MTD/cert/outcome; multi-strike FRED). A new domain = registry +
 templates + resolver adapter, nothing else changes. Migration path: **(A) DONE**
-— `events` + `market_specs` + `markets.event_id` created inert (migration
-`20260712000000`, admin-only RLS, nothing writes to them yet); (B) court
-pipeline targets it (promote confirmed+active proceedings → events, draft specs
-into `market_specs`, approve → mint markets via `add-market`); (C) optionally
+— `events` + `market_specs` + `markets.event_id` (migration `20260712000000`),
+`resolution_proposals` (`20260712000100`), `spec_conditions` +
+`events.mutually_exclusive` (`20260713000000`), and `payouts.outcome_id`
+nullable (`20260713000100`); all admin-only RLS, LIVE but inert — nothing
+writes to the events layer yet. **(B) NEXT** — court pipeline targets it
+(promote confirmed+active proceedings → events, draft specs into
+`market_specs`, approve → mint markets via `add-market`); (C) optionally
 retrofit FRED (event per release). `market_specs.params` carries the
 `ResolutionSpec` consumed by [`resolve.ts`](supabase/functions/_shared/court-resolution/resolve.ts).
+NB: `event_links` (the `same_matter`/`supersedes` navigation graph in survey
+§15) is designed but **not built** — not needed for the market types above;
+add it when the matter graph is wanted. Migration history was out of sync
+(several migrations applied out-of-band); repaired 2026-07-13, so
+`supabase db push` works normally again.
 Resolved open questions (all yes): hand-created `kind='custom'` events;
 multi-outcome specs for appeals (`outcomes` already supports ≥2); every new
 event-linked market requires a spec (legacy/FRED markets exempt via nullable
 `event_id`).
 
-Roadmap concepts added 2026-07-11 (detailed in
-[`market-data-models-survey.md`](market-data-models-survey.md) §7): (1)
-conditional markets — precondition edge on a spec/event; precondition fails →
-staged annulment via `annul-market`; (2) multiple-choice markets — closed
-small set → one N-outcome market, open/large set → event-grouped binaries
-with exclusivity flag; (3) combinations ("if A, then B or C") = (1)+(2) via a
-typed `event_links` edge table, which generalizes `matter_id`.
+Roadmap market types (detailed in
+[`market-data-models-survey.md`](market-data-models-survey.md) §7, §15) — the
+SCHEMA to hold these is now live (population pipeline = Phase B): (1)
+**conditional markets** — a `spec_conditions` row ties a spec to a required
+outcome of another spec/event; any condition resolving contrary (or
+ambiguous/annulled/abandoned) stages annulment via `annul-market`; multiple
+rows = AND ("if A and B, then X"); (2) **multiple-choice markets** — closed
+small set → one N-outcome market (`outcomes` supports ≥2, but resolve/AMM
+handling of N>2 is **unverified** — a pre-flight check to do), open/large set →
+event-grouped binaries under a `mutually_exclusive` event; (3) **combinations**
+("if A, then B or C") = a multi-outcome spec + `spec_conditions` rows.
+**Deferred by decision:** disjunction (OR conditions — add-back:
+`condition_group` column) and nested conditions (the watcher must refuse
+condition chains deeper than 1). Full combinatorial *pricing* is permanently
+out of scope (Hanson money-pump, survey §8).
 
 Known gaps / design notes:
 - Appellate dockets under-match on `party_name` (sparse party data in
@@ -353,6 +376,32 @@ Known gaps / design notes:
 - Secret `COURTLISTENER_API_TOKEN` is SET (EDU-tier token, in Supabase secrets +
   `.env.local`) — unlocks docket-entries/documents endpoints; per-case on-demand
   fetching is cheap under EDU limits.
+
+## Market lifecycle logic & tests (2026-07-13)
+
+Payout math is extracted into one pure, unit-tested module
+[`_shared/market-lifecycle/payouts.ts`](supabase/functions/_shared/market-lifecycle/payouts.ts):
+`computeResolutionPayouts` (net shares on the winning outcome × $1.00) and
+`computeAnnulmentPayouts` (net shares across all outcomes × $0.50; `outcome_id`
+null). `resolve-market` and `annul-market` both call it (dry-run *and* real
+path) — no more copy-pasted payout loops. All three of `resolve-market`,
+`annul-market`, `resolve-fred-markets` accept `{dry_run:true}` to simulate
+without writing (see memory `pipeline-dry-run-verification`; `resolve-fred`'s is
+shallow — picks the winner, doesn't simulate payouts).
+
+Bug fixed this session: `annul-market` inserted `outcome_id:null` + a phantom
+`payout_type` column into `payouts`, which failed against the real schema — so
+live annulments credited balances but wrote no payout rows. Fix = nullable
+`payouts.outcome_id` + drop `payout_type` (both live + deployed).
+
+Tests (deno; every DB test wraps writes in a rolled-back transaction, safe vs
+prod — see [`supabase/tests/README.md`](supabase/tests/README.md)):
+- `deno task test` — pure logic, no DB (payout math + court pipeline; 39 tests).
+- `deno task test:schema` — events-schema contract vs live DB.
+- `deno task test:e2e` — full create → bet → resolve/annul lifecycle vs live DB
+  (this is the game-independent E2E that caught the annul bug).
+  `test:schema`/`test:e2e` need `DATABASE_URL` + `PGCA` (pooler CA); see the
+  tests README.
 
 ## Conventions
 - Trunk-based: commit straight to `main`, no feature branches (see global prefs).
