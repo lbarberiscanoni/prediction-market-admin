@@ -9,9 +9,10 @@ fast orientation map. Deeper references already exist and are still canonical:
   events/market_specs proposal below: how Polymarket/Kalshi/Manifold structure markets as
   data (§1–5), Gnosis CTF (§6), roadmap concepts — conditional/multi-choice/combination
   markets (§7), Hanson LMSR (§8), higher-order forecasts (§9), Paradigm pm-AMM (§10),
-  Metaculus/Augur/PredictIt/Futuur/Betfair/Metaforecast/INFER (§11–13), and the
-  consolidated missing-pieces list (§14: conditional cascade, suspended state,
-  annulled≠ambiguous, outcome withdrawal, payout vectors, template provenance).
+  Metaculus/Augur/PredictIt/Futuur/Betfair/Metaforecast/INFER (§11–13), the
+  consolidated missing-pieces list (§14), and the **settled v1 schema (§15)**:
+  events + market_specs + spec_conditions (N rows = AND; disjunction/nesting
+  deferred) + event_links + markets.event_id, with the deletion/deferral log.
 
 **Read this file first when the question is "how does X actually happen".** Most
 of the real work happens in **Supabase Edge Functions**, not in this Next.js app —
@@ -249,9 +250,22 @@ mirroring the FRED pipeline (discover → create via `add-market` → resolve).
   `market_specs.params`) + the classifier verdict → `resolve` (a specific
   outcome) / `annul` / `continue` / `review` — never guesses (unmapped
   classification → human review). `resolve_test.ts` (7 pure tests, no LLM)
-  covers it against the golden labels. Still to build: the `resolve-court-markets`
-  watcher that fetches new entries, runs `classifyDocket`, and files proposals
-  into a pending-approval queue (never auto-resolve).
+  covers it against the golden labels. **Built + deployed** as the
+  domain-agnostic [`resolve-event-markets`](supabase/functions/resolve-event-markets/index.ts)
+  watcher: `runWatcher` ([`_shared/resolution/watcher.ts`](supabase/functions/_shared/resolution/watcher.ts))
+  dispatches each live `market_spec` to the adapter registered for its
+  `event.kind` (court today via
+  [`court-adapter.ts`](supabase/functions/_shared/court-resolution/court-adapter.ts);
+  FRED/custom = add a sibling adapter, engine unchanged), then **auto-executes**
+  confident `resolve`/`annul` verdicts (via `resolve-market`/`annul-market`,
+  marks the spec resolved/annulled, logs an `executed` row in
+  `resolution_proposals` with evidence); only `review` verdicts / low-confidence
+  calls queue as `pending` for a human. Verified end-to-end against the real
+  Flaherty docket (affirmed → resolve "Yes"). Not yet on pg_cron (inert until
+  Phase B mints live specs). **Automation stance (Lorenzo, 2026-07-12):** the
+  whole pipeline runs on autopilot — play-money mistakes are acceptable,
+  `annul-market` is the universal undo, and the only human gate is the existing
+  real-money one (cycle-payout approval). See survey §15 "Automation model".
 
 ### Events data model — schema LIVE (Phase A applied, inert)
 
@@ -330,8 +344,10 @@ Known gaps / design notes:
   high-profile dockets. BUT `date_terminated` ≠ merits resolution — 3 of 4
   sampled terminations were remand/transfer/appeal, not a win/loss. Resolution
   MUST classify the terminal entry's text (merits-win / merits-loss / remanded /
-  transferred / appealed / voluntarily-dismissed) with human approval and
-  **annul as a common first-class outcome** — never auto-settle on termination.
+  transferred / appealed / voluntarily-dismissed) with
+  **annul as a common first-class outcome** — never settle on `date_terminated`
+  alone. Classified verdicts auto-execute (automation stance above); the
+  classifier's `review` verdict is the human escape hatch.
   Appeals resolve cleanest. Optional: CL **docket alerts** make CL actively poll
   PACER to guarantee the resolving entry appears promptly.
 - Secret `COURTLISTENER_API_TOKEN` is SET (EDU-tier token, in Supabase secrets +
