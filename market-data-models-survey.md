@@ -1112,3 +1112,170 @@ Gaps in the §7 roadmap + CLAUDE.md design surfaced by §11–13, ranked:
     ingestion score on `court_cases` to gate registry→event promotion.
 14. **Dual-currency, if ever (§12, Futuur).** One question row, per-currency
     price/pool state, one resolution — not sibling market rows.
+
+---
+
+## 15. Proposed v1 schema (settled 2026-07-11, after the Elon-algorithm pass)
+
+The schema that survived: first a maximal draft was assembled from §1–14, then
+requirements were re-questioned (whose requirement is this?), speculative
+structure deleted, and the platform-roadmap pieces (7.1–7.3 — Lorenzo's
+requirements, not research artifacts) restored in a more modular form.
+**Four small tables + one column now; one more table with phase 3.**
+
+### The migration
+
+```sql
+create table events (
+  id                 uuid primary key default gen_random_uuid(),
+  kind               text not null check (kind in ('court_case', 'fred_release', 'custom')),
+  title              text not null,
+  status             text not null default 'active'
+                       check (status in ('active', 'concluded', 'abandoned')),
+  mutually_exclusive boolean not null default false,   -- 7.2: this event's markets form an exclusive ladder
+  registry_table     text,                             -- provenance: 'court_cases', …
+  registry_id        text,
+  details            jsonb not null default '{}',
+  created_at         timestamptz not null default now()
+);
+
+create table market_specs (
+  id                  uuid primary key default gen_random_uuid(),
+  event_id            uuid not null references events(id),
+  template_id         text not null,                   -- names a template defined in GIT (no templates table)
+  params              jsonb not null default '{}',
+  question            text not null,
+  resolution_criteria text not null,                   -- rendered prose; MUST include annulment conditions
+                                                       -- fixed at creation (§12 Augur lesson)
+  justification       text,                            -- the LLM's case (audit trail)
+  confidence          numeric,                         -- drafter confidence; drives auto-approval
+  status              text not null default 'pending'
+                        check (status in ('pending', 'approved', 'rejected')),
+  reviewed_by         uuid,                            -- null on an approved spec = machine-approved
+  decided_at          timestamptz,
+  market_id           bigint unique references markets(id),  -- match markets key type; set on mint;
+                                                             -- the market's own status is truth thereafter
+  created_at          timestamptz not null default now()
+);
+
+-- 7.1 + 7.3: conditions as ROWS, N rows = conjunction (AND). "If A and B, then X"
+-- = a spec for X with two condition rows. The administrative mirror of CTF deep
+-- positions (§6).
+create table spec_conditions (
+  id                 uuid primary key default gen_random_uuid(),
+  market_spec_id     uuid not null references market_specs(id) on delete cascade,
+  condition_spec_id  uuid references market_specs(id),  -- condition is another market: machine-checkable
+  condition_event_id uuid references events(id),        -- condition is an event predicate: watcher/human-checked
+  required_outcome   text not null,                     -- what keeps this market alive ('Yes', 'denied', …)
+  note               text,                              -- human-readable statement of the condition
+  check (num_nonnulls(condition_spec_id, condition_event_id) = 1)
+);
+
+-- The navigation/matter graph (generalizes court_cases.matter_id).
+-- NOTE: no 'precondition' type — conditionality lives ONLY in spec_conditions.
+create table event_links (
+  from_event_id uuid not null references events(id),
+  to_event_id   uuid not null references events(id),
+  link_type     text not null check (link_type in ('same_matter', 'supersedes')),
+  details       jsonb not null default '{}',
+  primary key (from_event_id, to_event_id, link_type)
+);
+
+-- THE only trading-core change:
+alter table markets add column event_id uuid references events(id);
+```
+
+### Phase 3 (ships WITH the resolve-court-markets watcher, not before)
+
+```sql
+create table resolution_proposals (
+  id          uuid primary key default gen_random_uuid(),
+  market_id   bigint not null references markets(id),
+  kind        text not null check (kind in ('resolve', 'annul')),
+  outcome_id  bigint references outcomes(id),   -- for 'resolve'; null for 'annul'
+  void_reason text,                             -- 'annulled' vs 'ambiguous' (§11) + subtype
+  confidence  numeric,                          -- classifier confidence; drives auto-execution
+  evidence    jsonb,                            -- docket entry ids + classified text
+  proposed_by text not null,                    -- 'watcher:court' | 'watcher:condition' | admin id
+  status      text not null default 'pending'
+                check (status in ('pending', 'approved', 'rejected', 'executed')),
+  reviewed_by uuid,                             -- null on executed rows = machine-executed
+  decided_at  timestamptz,
+  created_at  timestamptz not null default now()
+);
+```
+
+Execution invokes the existing `resolve-market`/`annul-market` functions —
+the table sits upstream; they stay dumb.
+
+### Automation model (per Lorenzo, 2026-07-12: automate everything; mistakes OK)
+
+**Review-by-exception, not review-by-default.** Play-money mistakes are
+acceptable; the one human gate is the existing real-money one
+(`stage-cycle-payout` → admin approves → `send-paypal-payout`), which doubles
+as the place a systematically-wrong watcher would surface (bad resolutions →
+suspicious leaderboard P&L in the cash batch you already eyeball ~14-daily).
+
+- **Drafting:** specs with `confidence` ≥ threshold auto-approve
+  (`reviewed_by null`) and mint via `add-market` in the same cron chain as
+  the sweep. Low-confidence specs sit at `pending`.
+- **Resolution:** classifier verdicts `resolve`/`annul` auto-execute — the
+  proposal row is inserted with `status='executed'` as an audit log, and the
+  edge function fires immediately. Only the classifier's `review` verdict
+  (unmapped classification) or low confidence leaves a `pending` row.
+- **Mistake handling:** `annul-market` (refund everyone) is the universal
+  undo; every automated decision carries its `evidence`, so bad calls are
+  diagnosable and reversible in one action. No settlement-delay machinery at
+  play-money stakes.
+- The full court chain thus mirrors FRED's autonomy: sweep → promote →
+  draft → mint → watch → resolve, all cron, humans only on exceptions.
+
+### Condition semantics (the Metaculus cascade, §11, generalized to N parents)
+
+- All conditions satisfied or still open → the market lives its normal life.
+- **Any** condition resolves contrary to `required_outcome` — or resolves
+  ambiguous/annulled, or its event is abandoned — → the watcher files ONE
+  annul proposal citing the failed condition and auto-executes it (condition
+  failure is deterministic — the highest-confidence case there is). Order of
+  failures irrelevant; first failure kills.
+- Conditions still open at market close: market closes normally; resolution
+  waits until conditions + the main question are known.
+- The **watcher refuses condition chains deeper than 1** (a condition whose
+  spec itself has conditions) — nesting is deferred (below), guarded in code
+  rather than schema.
+
+### Roadmap coverage
+
+- **7.1 Conditional** = one condition row.
+- **7.2 Multi-choice** = closed small set → one market with N `outcomes` rows
+  (pre-flight: verify `resolve-market` + the public app's AMM handle N>2);
+  open/large set → N specs under one event with `mutually_exclusive`.
+- **7.3 Combination** ("if A, then B or C") = a multi-outcome spec with
+  condition rows. "If A and B, then X" comes free (two rows).
+- Joint/combinatorial *pricing* — permanently out (§8 money-pump boundary);
+  CTF nested collateral (§6) is the documented upgrade path.
+
+### Deletion / deferral log (each with its reinstatement trigger)
+
+| Deleted/deferred | Why | Add back when |
+|---|---|---|
+| `templates` table + `template_hash` | Design law #2: templates/provenance live in git; hashing is for adversarial creation (Augur), ours is a trusted pipeline | Admin UI authors templates / creation opens to outsiders |
+| `draft`/`live`/`resolved` spec statuses | Market state lives only on `markets`; no dual state machine | Never |
+| `on_precondition_failure` column | One legal value ('annul') is a constant | A second failure policy exists |
+| **Disjunction** ("if A **or** B") — deferred per Lorenzo | OR-conditioned refund semantics are murky (which branch's failure refunds?); let a concrete market force the design | Standard shape: `condition_group` smallint on `spec_conditions` — OR across groups, AND within |
+| **Nested conditions** — deferred per Lorenzo | Metaculus forbids nesting outright; murky semantics | Real chain shows up; lift the watcher's depth-1 guard, define cascade-through |
+| Payout-vector resolution | All current markets resolve binary-or-annul | First split/partial resolution: `payout` jsonb on proposals + per-outcome numerators (§6/§12/§13) |
+| `suspended` status | No live market has hit the docket-jump problem yet | First observed need: one check-constraint value, open ⇄ suspended (§13) |
+| Outcome withdrawal (`result`/`removed_at` on outcomes) | Nothing to withdraw from until multi-outcome markets exist | First dismissed co-defendant on a live ladder (§13) |
+| `answer_knowable_at` + anti-sniping snapback | Leaderboard-integrity enhancement, not roadmap | Sniping observed in P&L (§10/§11) |
+| Recurrence params on templates | FRED already recurs procedurally; retrofit is optional step C | FRED retrofit (§13 INFER shape) |
+| `fine_print` as separate column | One text column suffices | Reviewers complain criteria are unreadable (§11) |
+| `kind='market'` (meta-markets) | Nobody asked yet | Meta-market pilot (§9) — one check-constraint value |
+| `group_variable` on events | No renderer reads it | Ladder UI ships; until then `details` jsonb |
+| Dual currency | Not on roadmap | Cash mode: `currency` discriminator on trading tables, Futuur shape (§12) |
+
+**Open pre-flight checks before building:** (1) verify `resolve-market`,
+`annul-market`, and the public app's AMM against N>2 outcomes; (2) match FK
+types to actual `markets.id`/`profiles.id` types; (3) decide where the
+`mutually_exclusive` flag gets *enforced* when the first ladder ships (UI
+only, or AMM).
