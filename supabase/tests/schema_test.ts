@@ -292,11 +292,15 @@ Deno.test("B2. an add-market-shaped insert (no event_id) yields event_id null", 
   });
 });
 
-Deno.test("B3. existing FRED markets are unaffected (event_id null)", async () => {
+Deno.test("B3. FRED/legacy markets are unaffected (event_id null)", async () => {
   await withClient(async (c) => {
+    // The events layer only ADDS a nullable link. Court markets are legitimately
+    // event-linked (minted by the pipeline); the invariant is that FRED/legacy
+    // markets — everything not created through the events layer — stay null.
     const { rows } = await c.queryObject<{ n: bigint }>(
-      `select count(*)::bigint as n from public.markets where event_id is not null`,
+      `select count(*)::bigint as n from public.markets
+        where event_id is not null and 'Economics' = any(tags)`,
     );
-    assertEquals(rows[0].n, 0n, "no live market should be linked to an event yet");
+    assertEquals(rows[0].n, 0n, "no FRED (Economics-tagged) market should be event-linked");
   });
 });
