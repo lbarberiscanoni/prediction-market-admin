@@ -42,10 +42,14 @@ serve(async (req) => {
   try {
     const body = await req.json().catch(() => ({}));
     const dryRun = body?.dry_run === true;
+    // Batch the N least-recently-checked live specs — bounded by CourtListener's
+    // 10/min cap and the edge wall-clock (each spec = 1 CL fetch + 1 LLM call).
+    // Rotation (last_checked_at) covers the rest on subsequent runs.
+    const limit = Math.min(Number(body?.limit) || 6, 10);
 
-    // 1. Load live specs joined to their events.
+    // 1. Load a batch of live specs, oldest-checked first, joined to their events.
     const res = await db(
-      "market_specs?select=id,market_id,params,events(id,kind,title,details)&status=eq.live&market_id=not.is.null",
+      `market_specs?select=id,market_id,params,events(id,kind,title,details)&status=eq.live&market_id=not.is.null&order=last_checked_at.asc.nullsfirst&limit=${limit}`,
     );
     if (!res.ok) throw new Error(`market_specs read failed: ${await res.text()}`);
     const rows = (await res.json()) as Array<{
@@ -150,6 +154,20 @@ serve(async (req) => {
         executed++;
       } catch (err) {
         execErrors.push({ spec_id: p.spec_id, error: err instanceof Error ? err.message : String(err) });
+      }
+    }
+
+    // Advance the rotation cursor: stamp every spec we successfully checked
+    // (i.e. not an adapter error — those retry sooner). Skip on dry-run.
+    if (!dryRun) {
+      const errored = new Set(errors.map((e) => e.spec_id));
+      const checked = specs.map((s) => s.spec_id).filter((id) => !errored.has(id));
+      if (checked.length) {
+        await db(`market_specs?id=in.(${checked.join(",")})`, {
+          method: "PATCH",
+          headers: { Prefer: "return=minimal" },
+          body: JSON.stringify({ last_checked_at: new Date().toISOString() }),
+        });
       }
     }
 
