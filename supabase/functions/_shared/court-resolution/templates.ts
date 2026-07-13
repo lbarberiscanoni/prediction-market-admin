@@ -12,7 +12,6 @@
 // judgment is layered on top as a separate, eval-tested concern.
 
 import { ANNUL } from "./resolve.ts";
-import type { Classification } from "./taxonomy.ts";
 
 export interface CaseInput {
   cl_docket_id: number;
@@ -28,7 +27,7 @@ export interface Template {
   // horizon in days from filing → the default close date (a hint the human/LLM refines)
   horizonDays: number;
   outcomes: string[];
-  resolution_map: Partial<Record<Classification, string>>;
+  resolution_map: Record<string, string>;
   applies: (c: CaseInput) => boolean;
   question: (c: CaseInput, closeDate: string) => string;
   justification: (c: CaseInput) => string;
