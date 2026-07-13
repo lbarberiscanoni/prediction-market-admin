@@ -6,6 +6,7 @@
     "test:refine": "deno test --allow-env --allow-net supabase/functions/_shared/court-resolution/refine_eval.ts",
     "test:schema": "deno test --allow-env --allow-net --allow-read supabase/tests/schema_test.ts",
     "test:e2e": "deno test --allow-env --allow-net --allow-read supabase/tests/lifecycle_e2e_test.ts",
+    "test:integration": "deno test --allow-env --allow-net supabase/tests/pipeline_integration_test.ts",
     "test:all": "deno task test && deno task test:resolution"
   }
 }

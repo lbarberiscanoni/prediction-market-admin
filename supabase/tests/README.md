@@ -8,6 +8,7 @@ leave it byte-identical.
 |---|---|---|
 | `deno task test:schema` | `schema_test.ts` | The v1 events schema contract (spec_conditions, events.mutually_exclusive, RLS, constraints) + FRED/trading-core invariants |
 | `deno task test:e2e` | `lifecycle_e2e_test.ts` | Full create → bet → resolve / → annul lifecycle, using the same `_shared/market-lifecycle/payouts.ts` module the edge functions use |
+| `deno task test:integration` | `pipeline_integration_test.ts` | Invokes the DEPLOYED court-pipeline edge functions (sweep / promote / mint / resolve-event-markets) in **dry-run** mode — exercises the real boot → auth → DB → external-API glue, writes nothing. Needs `SUPABASE_URL` + `SUPABASE_ANON_KEY` (from `.env.local`'s `NEXT_PUBLIC_*`); costs a few live CL/LLM calls. |
 
 Pure-logic tests (no DB) run with `deno task test` and need no setup.
 
