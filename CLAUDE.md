@@ -238,10 +238,22 @@ mirroring the FRED pipeline (discover → create via `add-market` → resolve).
   market — which drove the resolver to be **map-first**: a market's own spec is
   authoritative for its own question, overriding the classifier's generic
   annul). `draft_test.ts` (8 pure tests) covers selection + invariants +
-  round-trip. Still to add: more templates (MTD/PI granted-by-date,
-  class-cert-by-date, settlement final approval), an LLM pass to refine question
-  wording / close-date estimates + adversarially verify, and the human review
-  queue. Needs `ANTHROPIC_API_KEY` secret for the LLM pass.
+  round-trip. **Promotion** (`court_cases` → `events` + draft `market_specs`) is
+  built: [`promote.ts`](supabase/functions/_shared/court-resolution/promote.ts)
+  (`isPromotable`/`planPromotion`, 9 pure tests) + the
+  [`promote-court-cases`](supabase/functions/promote-court-cases/index.ts) edge
+  function (idempotent, dry-run). Ran live: **49 events + 11 draft specs**
+  (6 appeal_outcome, 5 state_remand). **LLM refinement** is built:
+  [`refine.ts`](supabase/functions/_shared/court-resolution/refine.ts)
+  `refineDraft` improves question wording + estimates a realistic close date +
+  assigns `confidence` (drives auto-approval). Safety law: `applyRefinement` is
+  a pure merge that keeps the draft's `params` (resolution_map/outcomes/template)
+  verbatim — the LLM structurally cannot change what a market resolves on, proven
+  by `refine_test.ts` (7 pure tests) without calling the model; `refine_eval.ts`
+  asserts the invariants on real output (`deno task test:refine`). Still to add:
+  more templates (MTD/PI granted-by-date, class-cert, settlement approval), and
+  the **mint** step (draft → live market via `add-market`, set `status:'live'`)
+  — the one gap before the loop runs end to end. Needs `ANTHROPIC_API_KEY`.
 - **Phase 3 (in progress — TDD first):** the resolution *classifier* is built
   test-first in [`supabase/functions/_shared/court-resolution/`](supabase/functions/_shared/court-resolution/):
   `classifyDocket()` (Opus 4.8, structured outputs) maps a case's docket entries
