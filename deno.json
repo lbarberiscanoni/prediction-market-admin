@@ -3,6 +3,8 @@
   "tasks": {
     "test": "deno test --allow-read supabase/functions/",
     "test:resolution": "deno test --allow-env --allow-read --allow-net supabase/functions/_shared/court-resolution/classify_eval.ts",
+    "test:schema": "deno test --allow-env --allow-net supabase/tests/schema_test.ts",
+    "test:e2e": "deno test --allow-env --allow-net --allow-read supabase/tests/lifecycle_e2e_test.ts",
     "test:all": "deno task test && deno task test:resolution"
   }
 }

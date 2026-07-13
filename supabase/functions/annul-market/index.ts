@@ -1,5 +1,6 @@
 import { serve } from "https://deno.land/std@0.170.0/http/server.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2.48.1";
+import { computeAnnulmentPayouts } from "../_shared/market-lifecycle/payouts.ts";
 
 // Retrieve environment variables
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
@@ -64,91 +65,19 @@ serve(async (req: Request) => {
     }
     console.log(`Fetched ${predictions.length} predictions for market ${market_id}`);
     
-    // 3. Calculate net shares per user across ALL outcomes and track all P&L
-    const userShares = {};
-    const userProfitLoss = {};
-    
-    for (const prediction of predictions) {
-      const userId = prediction.user_id;
-      
-      // Initialize records if first time seeing this user
-      if (!userShares[userId]) {
-        userShares[userId] = 0;
-      }
-      if (!userProfitLoss[userId]) {
-        userProfitLoss[userId] = 0;
-      }
-      
-      // Track net share position across ALL outcomes (for annulment, all shares are treated equally)
-      if (prediction.trade_type === 'buy') {
-        userShares[userId] += Number(prediction.shares_amt || 0);
-      } else if (prediction.trade_type === 'sell') {
-        userShares[userId] -= Number(prediction.shares_amt || 0);
-      }
-      
-      // Track P&L from all trading activity
-      userProfitLoss[userId] += Number(prediction.trade_value || 0);
-    }
-    
-    console.log("User net shares across all outcomes:", userShares);
-    console.log("User P&L from trading activity:", userProfitLoss);
+    // 3. Compute refunds with the shared, unit-tested lifecycle module
+    //    (net shares across ALL outcomes, refunded at $0.50/share; outcome_id
+    //    is null because an annulled market has no winning outcome).
+    const {
+      payouts: payoutSimulation,
+      totalCount: totalPayoutsSimulated,
+      totalAmount: totalPayoutAmountSimulated,
+    } = computeAnnulmentPayouts(predictions, market_id);
 
-    // 4. Calculate potential payouts and prepare records
-    const payoutSimulation = [];
-    let totalPayoutsSimulated = 0;
-    let totalPayoutAmountSimulated = 0;
-    
-    for (const [userId, shares] of Object.entries(userShares)) {
-      // Convert shares to a number to ensure proper comparison
-      const numShares = Number(shares);
-      
-      // Only pay users with positive share balances
-      if (numShares <= 0) {
-        console.log(`User ${userId} has zero or negative shares (${numShares}), no payout`);
-        continue;
-      }
-      
-      // Calculate payout amount ($0.50 per share for annulled markets)
-      const payoutAmount = numShares * 0.5;
-      
-      // Get trading P&L and ensure it's a number
-      const tradingPL = Number(userProfitLoss[userId] || 0);
-      
-      // Calculate total profit
-      const totalProfit = tradingPL + payoutAmount;
-      
-      // Create a simulation record
-      const simulatedPayout = {
-        user_id: userId,
-        market_id: market_id,
-        outcome_id: null, // No specific outcome for annulled markets
-        payout_amount: payoutAmount,
-        payout_type: 'annulment'
-      };
-      
-      payoutSimulation.push(simulatedPayout);
-      totalPayoutsSimulated++;
-      totalPayoutAmountSimulated += payoutAmount;
-      
-      console.log(`[SIMULATION] User ${userId} would receive $${payoutAmount.toFixed(2)} for ${numShares.toFixed(2)} shares (annulment rate: $0.50/share)`);
-      console.log(`[SIMULATION] User ${userId} total P&L: $${totalProfit.toFixed(2)} (Trading: $${tradingPL.toFixed(2)}, Payout: $${payoutAmount.toFixed(2)})`);
-      
-      // In dry run mode, fetch the current balance to display what it would be after payout
-      if (dry_run) {
-        const { data: profile, error: profileError } = await supabase
-          .from("profiles")
-          .select("balance")
-          .eq("user_id", userId)
-          .single();
-          
-        if (!profileError && profile) {
-          const currentBalance = Number(profile.balance || 0);
-          const newBalance = currentBalance + payoutAmount;
-          console.log(`[SIMULATION] User ${userId} balance would change from $${currentBalance.toFixed(2)} to $${newBalance.toFixed(2)}`);
-        }
-      }
-    }
-    
+    console.log(
+      `[SIMULATION] ${totalPayoutsSimulated} refund(s) totaling $${totalPayoutAmountSimulated.toFixed(2)} (annulment rate: $0.50/share)`,
+    );
+
     // In dry run mode, don't actually process any payouts or update the database
     if (dry_run) {
       console.log("[SIMULATION] Dry run complete, no actual payouts processed or status changes made");
