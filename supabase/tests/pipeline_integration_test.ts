@@ -81,3 +81,43 @@ Deno.test({
     assertEquals(r.exec_errors, [], "no execution errors");
   },
 });
+
+// 5. Health monitor: the daily alarm that catches silent pipeline failures (the
+//    court jobs failed 77 days straight and FRED creation stopped for a month
+//    before anyone noticed). Dry-run reads the real system and reports — sends
+//    nothing. Stale closed markets are a known-real condition in prod, so the
+//    report must be able to surface issues, not just return an empty list.
+Deno.test({
+  name: "pipeline-health: dry-run inspects every check and reports issues",
+  ignore: !ready,
+  fn: async () => {
+    const r = await invoke("pipeline-health", { dry_run: true });
+    assert(r.error === undefined, `errored: ${JSON.stringify(r)}`);
+    assertEquals(r.dry_run, true);
+    assertEquals(r.emailed, false, "dry run must never email");
+    const checks = r.checks as string[];
+    for (const c of ["cron", "http", "fred_creation", "stale_closed", "stuck_payments", "leaderboard", "court_watcher", "court_mint", "review_queue", "payday"]) {
+      assert(checks.includes(c), `check '${c}' ran`);
+    }
+    const issues = r.issues as Array<{ check: string; message: string }>;
+    assert(Array.isArray(issues), "issues is a list");
+    assertEquals(r.ok, issues.length === 0, "ok iff no issues");
+    for (const i of issues) assert(checks.includes(i.check) && i.message.length > 0, `well-formed issue ${JSON.stringify(i)}`);
+  },
+});
+
+// 6. Health monitor auth: a real (emailing) run with only the public anon key is
+//    refused — nobody can spam the admin inbox with the published key.
+Deno.test({
+  name: "pipeline-health: non-dry run with anon key is rejected",
+  ignore: !ready,
+  fn: async () => {
+    const res = await fetch(`${URL}/functions/v1/pipeline-health`, {
+      method: "POST",
+      headers: { Authorization: `Bearer ${ANON}`, "Content-Type": "application/json" },
+      body: JSON.stringify({}),
+    });
+    await res.body?.cancel();
+    assertEquals(res.status, 401);
+  },
+});

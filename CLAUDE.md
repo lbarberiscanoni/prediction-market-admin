@@ -62,6 +62,7 @@ deployed version as truth.
 | `reconcile-payouts` | Polls PayPal for terminal status of `Pending` PayPal payments; updates ledger. Moves no money. | `payments` | **pg_cron `0 * * * *`** (`reconcile-payouts-hourly`) |
 | `send-mturk-bonus` | Sends an Amazon MTurk worker bonus (legacy payout path). | — (MTurk API) | Admin UI / manual |
 | `admin` | Signs AWS/MTurk requests (returns signed request / creds helper for MTurk). | — | Frontend helper |
+| `pipeline-health` | Daily alarm for silent failures: cron failures, pg_net HTTP errors, FRED releases with no market created, stale closed markets, stuck payments, stale leaderboard, court watcher/mint stalls, review queue, missed payday. Rules in `_shared/health/checks.ts`; facts from SQL fn `pipeline_health_facts`. Emails `ALERT_EMAIL` (hllbck7@gmail.com) only when issues exist. `{dry_run:true}` is open; real run needs `x-cron-secret`. | — (sends email) | **pg_cron `30 9 * * *`** (`pipeline-health-daily`) |
 
 **In-repo before this doc:** only `send-mturk-bonus`, `send-paypal-payout`,
 `reconcile-payouts`, `_shared`. All 15 are now vendored.
@@ -69,7 +70,7 @@ deployed version as truth.
 ### Scheduling — pg_cron is the source of truth (NOT this repo)
 All periodic work runs from **Supabase `pg_cron`**, configured in the database
 (not in git). Query it with `select jobid, jobname, schedule, active, command
-from cron.job;`. As of 2026-07-13 there are 11 active jobs (all times UTC):
+from cron.job;`. As of 2026-09-29 there are 12 active jobs (all times UTC):
 
 | jobid | jobname | schedule | function |
 |---|---|---|---|
@@ -83,6 +84,7 @@ from cron.job;`. As of 2026-07-13 there are 11 active jobs (all times UTC):
 | — | `promote-court-cases-daily` | `15 8 * * *` | `promote-court-cases` (court_cases → events + draft specs) |
 | — | `mint-market-specs-daily` | `30 8 * * *` | `mint-market-specs` (refine + auto-approve drafts → live markets, batch 5) |
 | — | `resolve-event-markets-daily` | `0 9 * * *` | `resolve-event-markets` (watcher: check live markets, auto-resolve/annul, batch 8) |
+| 29 | `pipeline-health-daily` | `30 9 * * *` | `pipeline-health` (emails an alert if anything above failed or stalled) |
 | 19 | `reconcile-payouts-hourly` | `0 * * * *` | `reconcile-payouts` |
 
 The daily chain is intentional: FRED create (06:00) → resolve (06:30) →
@@ -96,6 +98,7 @@ rotates via `market_specs.last_checked_at` so every live market is covered over
 successive runs. To add/remove jobs use
 `cron.schedule('name','* * * * *', $job$ … $job$)` / `cron.unschedule('name')`;
 mirror the auth pattern of the existing jobs (anon Bearer token in the header).
+**Gotcha:** a cron job's status only means the `net.http_post` was *queued* — a broken body or a function that dies mid-run still shows `succeeded`. That's why `pipeline-health` exists; check its dry-run report after touching any job. (2026-09-29: mint/watch jobs had `'{\"limit\":5}'` escaped JSON and failed 77 days unnoticed.)
 **Money-moving jobs** (`auto-pay-cycle`) additionally send an `x-cron-secret`
 header (Supabase secret `CRON_SECRET`) that the function verifies — the anon
 Bearer only satisfies the gateway's JWT check; the shared secret is the real
