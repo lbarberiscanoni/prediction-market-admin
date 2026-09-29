@@ -4,7 +4,6 @@ import React, { useState, useEffect } from 'react';
 import Link from 'next/link';
 import supabase from '@/lib/supabase/createClient';
 import { useRouter } from 'next/navigation';
-import CyclePayoutReview from '@/components/CyclePayoutReview';
 
 interface Player {
   id: string;
@@ -357,9 +356,6 @@ const PaymentsPage: React.FC = () => {
           </div>
         )}
       </div>
-
-      {/* Biweekly leaderboard-bonus cycle payout, staged for review */}
-      <CyclePayoutReview />
 
       {error && <p className="text-red-500 mb-4 whitespace-pre-line">{error}</p>}
       {success && <p className="text-green-500 mb-4">{success}</p>}

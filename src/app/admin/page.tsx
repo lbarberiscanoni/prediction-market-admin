@@ -1,5 +1,4 @@
 import Link from "next/link";
-import CyclePayoutReview from "@/components/CyclePayoutReview";
 
 const adminTools = [
   {
@@ -53,8 +52,6 @@ export default function Admin() {
             </Link>
           </div>
         </header>
-
-        <CyclePayoutReview />
 
         <section className="grid gap-4 md:grid-cols-2">
           {adminTools.map((tool) => (

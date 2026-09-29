@@ -38,7 +38,7 @@ deployed version as truth.
 
 ---
 
-## Edge Function catalog (15 functions)
+## Edge Function catalog (16 functions)
 
 | Function | Purpose | Writes to | Triggered by |
 |---|---|---|---|
@@ -51,8 +51,9 @@ deployed version as truth.
 | `annul-market` | Voids a market; refunds all participants their net position. | `markets` (→`annulled`), `payouts` | Admin UI / manual |
 | `calculate-leaderboard` | Ranks users by P&L over eligible markets (open + recently-closed/resolved/annulled). | `leaderboards` | **pg_cron `45 6 * * *`** (`daily-leaderboard-calculation`) |
 | `market-notification` | Emails users (Resend) announcing newly created markets. Rate-limited. | — (sends email) | `get-fred-data` after creating markets |
-| `stage-cycle-payout` | Computes leaderboard-rank bonus batch, STAGES it as `pending_approval` (moves no money). ~14-day cadence. | `cycle_payouts` | **pg_cron `15 7 * * *`** (`stage-cycle-payout-daily`; internal 14-day guard self-throttles) |
-| `send-paypal-payout` | Pays a batch via PayPal Payouts API; logs to ledger. | `payments` | **Admin UI** (`invoke('send-paypal-payout')`) |
+| `auto-pay-cycle` | **Fully automated leaderboard-bonus payout** (replaced the manual approve-and-send UI, now deleted). Recomputes the current cycle live from the latest leaderboard (ranking/eligibility logic in `_shared/leaderboard-payouts/cycle.ts`), sends eligible PayPal payouts via the Payouts API, writes the `payments` ledger, marks `cycle_payouts` sent. Guardrails: `x-cron-secret`/service-role auth (NOT anon), per-leaderboard idempotency, `$100`/cycle spend cap (`AUTO_PAY_MAX_CYCLE_USD`), `{dry_run}`. Cadence is set by the cron SCHEDULE, not a timer in the function. | `payments`, `cycle_payouts` | **pg_cron twice a month** (`auto-pay-cycle-midmonth` `20 7 15 * *` + `auto-pay-cycle-endmonth` last day of month) |
+| `stage-cycle-payout` | Computes leaderboard-rank bonus batch, STAGES it as `pending_approval` (moves no money). ~14-day cadence. | `cycle_payouts` | ⚠️ **Not scheduled** (superseded by `auto-pay-cycle` 2026-07-13; cron job removed). Still callable manually. |
+| `send-paypal-payout` | Pays a single payout via PayPal Payouts API; logs to ledger. Admin-JWT gated (`requireAdmin`) so pg_cron can't call it — that's why `auto-pay-cycle` inlines its own PayPal call. | `payments` | **Admin UI** (`invoke('send-paypal-payout')`) |
 | `reconcile-payouts` | Polls PayPal for terminal status of `Pending` PayPal payments; updates ledger. Moves no money. | `payments` | **pg_cron `0 * * * *`** (`reconcile-payouts-hourly`) |
 | `send-mturk-bonus` | Sends an Amazon MTurk worker bonus (legacy payout path). | — (MTurk API) | Admin UI / manual |
 | `admin` | Signs AWS/MTurk requests (returns signed request / creds helper for MTurk). | — | Frontend helper |
@@ -63,7 +64,7 @@ deployed version as truth.
 ### Scheduling — pg_cron is the source of truth (NOT this repo)
 All periodic work runs from **Supabase `pg_cron`**, configured in the database
 (not in git). Query it with `select jobid, jobname, schedule, active, command
-from cron.job;`. As of 2026-07-13 there are 10 active jobs (all times UTC):
+from cron.job;`. As of 2026-07-13 there are 11 active jobs (all times UTC):
 
 | jobid | jobname | schedule | function |
 |---|---|---|---|
@@ -71,7 +72,8 @@ from cron.job;`. As of 2026-07-13 there are 10 active jobs (all times UTC):
 | 14 | `daily-fred-resolution` | `30 6 * * *` | `resolve-fred-markets` |
 | 1 | `daily-leaderboard-calculation` | `45 6 * * *` | `calculate-leaderboard` |
 | 2 | `auto-close-markets-daily` | `0 7 * * *` | `auto-close-markets` |
-| 21 | `stage-cycle-payout-daily` | `15 7 * * *` | `stage-cycle-payout` (guard self-throttles to ~14d) |
+| 27 | `auto-pay-cycle-midmonth` | `20 7 15 * *` | `auto-pay-cycle` (auto-sends leaderboard bonuses on the 15th) |
+| 28 | `auto-pay-cycle-endmonth` | `20 7 28-31 * *` | `auto-pay-cycle` (fires 28–31 but a `case`/last-day-of-month SQL guard only calls it on the actual last day) |
 | — | `sweep-court-cases-daily` | `0 8 * * *` | `sweep-court-cases` (court discovery) |
 | — | `promote-court-cases-daily` | `15 8 * * *` | `promote-court-cases` (court_cases → events + draft specs) |
 | — | `mint-market-specs-daily` | `30 8 * * *` | `mint-market-specs` (refine + auto-approve drafts → live markets, batch 5) |
@@ -79,7 +81,9 @@ from cron.job;`. As of 2026-07-13 there are 10 active jobs (all times UTC):
 | 19 | `reconcile-payouts-hourly` | `0 * * * *` | `reconcile-payouts` |
 
 The daily chain is intentional: FRED create (06:00) → resolve (06:30) →
-leaderboard (06:45) → close (07:00) → stage bonus batch (07:15). Then the
+leaderboard (06:45) → close (07:00). The leaderboard-bonus **auto-pay runs twice
+a month** (the 15th and the last day, 07:20 UTC — after that day's fresh
+leaderboard), not daily. Then the
 **autonomous court-market loop**: sweep (08:00) → promote (08:15) → mint (08:30)
 → resolve/watch (09:00). The court steps are all **batched** (per-run limits)
 to stay under CourtListener's 10/min cap + the edge wall-clock; the watcher
@@ -87,6 +91,10 @@ rotates via `market_specs.last_checked_at` so every live market is covered over
 successive runs. To add/remove jobs use
 `cron.schedule('name','* * * * *', $job$ … $job$)` / `cron.unschedule('name')`;
 mirror the auth pattern of the existing jobs (anon Bearer token in the header).
+**Money-moving jobs** (`auto-pay-cycle`) additionally send an `x-cron-secret`
+header (Supabase secret `CRON_SECRET`) that the function verifies — the anon
+Bearer only satisfies the gateway's JWT check; the shared secret is the real
+gate, so a money payout can't be triggered with the public anon key alone.
 
 **History:** `.github/workflows/fred-daily.yml` was the *original* scheduler for
 `get-fred-data`, superseded by pg_cron `fred-daily-check`. It went dormant after
@@ -149,11 +157,17 @@ pending ──activate-markets──▶ open ──auto-close-markets (close_dat
 
 - **payouts** are written to the `payouts` table on `resolve-market` / `annul-market`
   / `resolve-fred-markets` (in-app play-money settlement of shares).
-- **cash payouts** (leaderboard bonuses) are a *separate* system: `stage-cycle-payout`
-  → `cycle_payouts` (pending_approval) → admin approves → `send-paypal-payout`
-  → `payments` ledger → `reconcile-payouts` settles. See `documentation.md`
-  "Leaderboard Bonus Payouts". Real-money paths (`send-paypal-payout`,
-  `send-mturk-bonus`) always require explicit human approval in the UI.
+- **cash payouts** (leaderboard bonuses) are a *separate* system, **now fully
+  automated** (2026-07-13): `auto-pay-cycle` (pg_cron, twice a month — 15th + last
+  day) recomputes the cycle live → sends PayPal payouts → `payments` ledger → `reconcile-payouts`
+  settles. No human click. The old `stage-cycle-payout` → `pending_approval` →
+  admin-approves-in-UI path is fully superseded: its cron job was removed AND its
+  admin UI (`CyclePayoutReview.tsx`) was **deleted** (2026-07-13). The
+  per-player manual PayPal path in `/payments` (via `send-paypal-payout`) remains
+  for one-off overrides. See `documentation.md` "Leaderboard Bonus Payouts".
+  `send-mturk-bonus` (legacy) still requires explicit human approval in the UI.
+  The automation is bounded by `auto-pay-cycle`'s guardrails (per-cycle spend
+  cap, idempotency, secret-gated trigger); the amounts are small by design.
 
 ---
 
@@ -290,8 +304,13 @@ mirroring the FRED pipeline (discover → create via `add-market` → resolve).
   Flaherty docket (affirmed → resolve "Yes"). Not yet on pg_cron (inert until
   Phase B mints live specs). **Automation stance (Lorenzo, 2026-07-12):** the
   whole pipeline runs on autopilot — play-money mistakes are acceptable,
-  `annul-market` is the universal undo, and the only human gate is the existing
-  real-money one (cycle-payout approval). See survey §15 "Automation model".
+  `annul-market` is the universal undo. **Update 2026-07-13:** the last human
+  gate (cycle-payout approval) has also been automated (`auto-pay-cycle`) — the
+  amounts are small enough that Lorenzo accepts unattended real-money bonus
+  payouts, bounded by that function's spend cap / idempotency / cadence
+  guardrails. So there is now *no* routine human approval step; oversight is
+  by-exception (spend-cap breach → manual, low-confidence resolution → review
+  queue). See survey §15 "Automation model".
 
 ### Events data model — schema LIVE (Phase A applied, inert)
 
@@ -408,6 +427,27 @@ path) — no more copy-pasted payout loops. All three of `resolve-market`,
 without writing (see memory `pipeline-dry-run-verification`; `resolve-fred`'s is
 shallow — picks the winner, doesn't simulate payouts).
 
+Leaderboard-bonus payout logic is likewise pure + unit-tested (TDD) in
+[`_shared/leaderboard-payouts/cycle.ts`](supabase/functions/_shared/leaderboard-payouts/cycle.ts):
+`computeCyclePlan(entries, profiles, cap)` ranks the board (explicit `position`
+else descending P&L), joins live payment info, applies the bonus schedule
+(`payoutForRank`: 1→$3, 2→$1.5, 3→$1, else $0.5), marks eligibility (PayPal +
+email), totals the eligible rows, and flags `overCap`. This is now the *only*
+copy of the logic — the old `CyclePayoutReview.tsx` admin UI that duplicated it
+was deleted. `cycle_test.ts` = 12 pure tests.
+
+The money-moving ORCHESTRATION is also TDD'd, in
+[`_shared/leaderboard-payouts/auto-pay.ts`](supabase/functions/_shared/leaderboard-payouts/auto-pay.ts):
+`isAuthorized(bearer, cronHeader, {serviceKey, cronSecret})` (the real-money
+auth gate) + `runAutoPayCycle(deps, {dryRun})`, where all I/O (DB reads/writes,
+PayPal) is injected as `AutoPayDeps` — same dependency-injection pattern as
+`runWatcher`. So the control flow (idempotency skip, spend-cap gate, dry-run =
+zero writes, empty-cycle recording, claim→pay-each→ledger→mark-sent, partial
+failures, 409 claim conflict) is exercised with fakes — no DB, no network, no
+money. The `auto-pay-cycle` edge function ([index.ts](supabase/functions/auto-pay-cycle/index.ts))
+is a thin shell: it builds the real deps and maps the outcome to an HTTP
+response. `auto-pay_test.ts` = 13 tests.
+
 Bug fixed this session: `annul-market` inserted `outcome_id:null` + a phantom
 `payout_type` column into `payouts`, which failed against the real schema — so
 live annulments credited balances but wrote no payout rows. Fix = nullable
@@ -415,7 +455,8 @@ live annulments credited balances but wrote no payout rows. Fix = nullable
 
 Tests (deno; every DB test wraps writes in a rolled-back transaction, safe vs
 prod — see [`supabase/tests/README.md`](supabase/tests/README.md)):
-- `deno task test` — pure logic, no DB (payout math + court pipeline; 39 tests).
+- `deno task test` — pure logic, no DB (payout math + leaderboard-bonus cycle
+  plan + auto-pay orchestration + court pipeline; 83 tests).
 - `deno task test:schema` — events-schema contract vs live DB.
 - `deno task test:e2e` — full create → bet → resolve/annul lifecycle vs live DB
   (this is the game-independent E2E that caught the annul bug).
