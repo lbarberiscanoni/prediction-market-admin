@@ -34,7 +34,12 @@ deployed version as truth.
 
 - List live functions: `supabase functions list`
 - Refresh a local copy: `supabase functions download <name>`
-- Deploy (only when intentionally changing backend): `supabase functions deploy <name>`
+- Deploy (only when intentionally changing backend): `deno task deploy <name> [...]`
+  ([`scripts/deploy-functions.sh`](scripts/deploy-functions.sh)). It uses
+  `SUPABASE_PROPHET_TOKEN` from `.env.local`, because the CLI's global login is
+  a *different* Supabase account (Cassandra) that gets 403 on this project —
+  plain `supabase functions deploy/download/list` will fail. Pass the same
+  token as `SUPABASE_ACCESS_TOKEN=` for any other CLI call against this project.
 
 ---
 
