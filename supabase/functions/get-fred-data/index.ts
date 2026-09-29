@@ -86,6 +86,9 @@ serve(async (req) => {
         name: "Commercial Bank Interest Rate on Credit Card Plans, All Accounts",
         releaseId: 14,
         seriesId: "TERMCBCCALLNS",
+        // Quarterly series on a monthly release (G.19): it only updates in the
+        // Jan/Apr/Jul/Oct releases. Other months' markets could never resolve.
+        updateMonths: [1, 4, 7, 10],
       },
       {
         name: "Housing Inventory: Active Listing Count in the United States",
@@ -228,6 +231,10 @@ serve(async (req) => {
 
     // Process all indicators to find releases on the specific date
     for (const indicator of targetIndicators) {
+      if (indicator.updateMonths && !indicator.updateMonths.includes(targetDate.getUTCMonth() + 1)) {
+        console.log(`Skipping ${indicator.name}: series does not update in the ${targetDateStr} release`)
+        continue
+      }
       try {
         const releases = await getReleaseCalendar(indicator.releaseId, indicator.name, indicator.seriesId)
         if (releases && releases.length > 0) {
