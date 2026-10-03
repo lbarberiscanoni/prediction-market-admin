@@ -1,5 +1,6 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts"
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2'
+import { decideFredResolution, type FredSource } from '../_shared/fred-resolution/decide.ts'
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -62,11 +63,15 @@ serve(async (req) => {
           name
         )
       `)
-      .eq('status', 'closed')
       .lte('close_date', todayStr)
 
     if (specificMarketId) {
       marketsQuery = marketsQuery.eq('id', specificMarketId)
+    }
+    // A dry run on one specific market may target any status, so the decision
+    // can be replayed against already-settled historical markets (writes nothing).
+    if (!(dryRun && specificMarketId)) {
+      marketsQuery = marketsQuery.eq('status', 'closed')
     }
 
     const { data: markets, error: marketsError } = await marketsQuery
@@ -101,120 +106,48 @@ serve(async (req) => {
       return match ? match[1] : null
     }
 
-    // Function to get series metadata and latest observation
-    async function getSeriesDataAndLatestObservation(seriesId: string) {
-      try {
-        // First, get series metadata to check last_updated
-        const seriesUrl = `https://api.stlouisfed.org/fred/series`
-        const seriesParams = new URLSearchParams({
-          api_key: fredApiKey,
-          file_type: 'json',
-          series_id: seriesId
-        })
-
-        console.log(`Fetching series metadata for ${seriesId}`)
-        const seriesResponse = await fetch(`${seriesUrl}?${seriesParams}`)
-        
-        if (!seriesResponse.ok) {
-          console.warn(`Failed to fetch series metadata for ${seriesId}: ${seriesResponse.status}`)
-          return null
-        }
-
-        const seriesData = await seriesResponse.json()
-        const series = seriesData.seriess?.[0]
-        
-        if (!series) {
-          console.warn(`No series data found for ${seriesId}`)
-          return null
-        }
-
-        // Get the latest observation
-        const observationsUrl = `https://api.stlouisfed.org/fred/series/observations`
-        const obsParams = new URLSearchParams({
-          api_key: fredApiKey,
-          file_type: 'json',
-          series_id: seriesId,
-          limit: '1',
-          sort_order: 'desc',
-          observation_start: '1900-01-01',
-          observation_end: '9999-12-31'
-        })
-
-        console.log(`Fetching latest observation for ${seriesId}`)
-        const obsResponse = await fetch(`${observationsUrl}?${obsParams}`)
-        
-        if (!obsResponse.ok) {
-          console.warn(`Failed to fetch observations for ${seriesId}: ${obsResponse.status}`)
-          return null
-        }
-
-        const obsData = await obsResponse.json()
-        const observations = obsData.observations || []
-        
-        if (observations.length === 0) {
-          console.warn(`No observations found for ${seriesId}`)
-          return null
-        }
-
-        const latestObs = observations[0]
-        
-        return {
-          series_id: seriesId,
-          last_updated: series.last_updated,
-          observation: {
-            date: latestObs.date,
-            value: parseFloat(latestObs.value),
-            realtime_start: latestObs.realtime_start,
-            realtime_end: latestObs.realtime_end
-          }
-        }
-      } catch (error) {
-        console.error(`Error fetching data for ${seriesId}:`, error)
-        return null
-      }
+    async function fredGet(path: string, params: Record<string, string>) {
+      const qs = new URLSearchParams({ api_key: fredApiKey!, file_type: 'json', ...params })
+      const res = await fetch(`https://api.stlouisfed.org/fred/${path}?${qs}`)
+      if (!res.ok) throw new Error(`FRED ${path} ${params.series_id}: ${res.status} ${await res.text()}`)
+      return await res.json()
     }
 
-    // Function to check if last_updated is greater than or equal to close date
-    function isDataCurrentForCloseDate(lastUpdated: string, closeDate: string): boolean {
-      const lastUpdatedDate = new Date(lastUpdated)
-      const closeDateObj = new Date(closeDate)
-      
-      return lastUpdatedDate >= closeDateObj
+    // ALFRED real-time access: publication dates + values as they stood on a date
+    const fred: FredSource = {
+      async vintageDates(seriesId, start, end) {
+        // No realtime range: FRED answers a range with no vintages in it with a
+        // 500, not an empty list. Pull the most recent vintages and filter here.
+        const data = await fredGet('series/vintagedates', {
+          series_id: seriesId, sort_order: 'desc', limit: '1000',
+        })
+        return (data.vintage_dates || []).filter((d: string) => d >= start && d <= end).sort()
+      },
+      async latestAsOf(seriesId, asOf) {
+        const data = await fredGet('series/observations', {
+          series_id: seriesId, realtime_start: asOf, realtime_end: asOf,
+          sort_order: 'desc', limit: '10',
+        })
+        const obs = (data.observations || []).find((o: { value: string }) => Number.isFinite(parseFloat(o.value)))
+        return obs ? { date: obs.date, value: parseFloat(obs.value) } : null
+      },
     }
 
-    // Function to resolve a market
-    async function resolveMarket(marketId: string, outcomeId: string, marketName: string, actualValue: number, targetValue: number, isHigher: boolean) {
-      if (dryRun) {
-        console.log(`[DRY RUN] Would resolve market "${marketName}" (${marketId}) with outcome ${outcomeId}`)
-        return { success: true, dry_run: true }
-      }
-
+    async function callMarketFunction(fn: 'resolve-market' | 'annul-market', body: Record<string, unknown>) {
+      if (dryRun) return { success: true, dry_run: true }
       try {
-        console.log(`Resolving market "${marketName}" (${marketId}) with outcome ${outcomeId} - Actual: ${actualValue}, Target: ${targetValue}, Higher: ${isHigher}`)
-        
-        const resolveResponse = await fetch('https://asxaibpmkcorlcpycgqc.supabase.co/functions/v1/resolve-market', {
+        const res = await fetch(`https://asxaibpmkcorlcpycgqc.supabase.co/functions/v1/${fn}`, {
           method: 'POST',
           headers: {
-            'Authorization': 'Bearer eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImFzeGFpYnBta2NvcmxjcHljZ3FjIiwicm9sZSI6ImFub24iLCJpYXQiOjE3MzA5MjE1ODMsImV4cCI6MjA0NjQ5NzU4M30.0VuRkHRnR0sNYqhKBPWlwQRYBLA5dPw4D18mfAZYnA8',
+            'Authorization': `Bearer ${supabaseAnonKey}`,
             'Content-Type': 'application/json'
           },
-          body: JSON.stringify({
-            market_outcome_id: outcomeId
-          })
+          body: JSON.stringify(body)
         })
-
-        if (resolveResponse.ok) {
-          const result = await resolveResponse.json()
-          console.log(`✅ Successfully resolved market "${marketName}" (${marketId})`)
-          return { success: true, result }
-        } else {
-          const errorText = await resolveResponse.text()
-          console.error(`❌ Failed to resolve market "${marketName}" (${marketId}): ${resolveResponse.status} ${errorText}`)
-          return { success: false, error: `Resolution failed: ${resolveResponse.status} ${errorText}` }
-        }
+        if (res.ok) return { success: true, result: await res.json() }
+        return { success: false, error: `${fn} failed: ${res.status} ${await res.text()}` }
       } catch (error) {
-        console.error(`Error resolving market "${marketName}" (${marketId}):`, error)
-        return { success: false, error: error.message }
+        return { success: false, error: `${fn} failed: ${(error as Error).message}` }
       }
     }
 
@@ -222,146 +155,69 @@ serve(async (req) => {
     const processedMarkets = []
     const errors = []
     let resolvedCount = 0
+    let annulledCount = 0
+    let waitingCount = 0
     let skippedCount = 0
 
     for (const market of markets) {
       try {
         console.log(`Processing market: ${market.name} (${market.id})`)
-        
-        // Extract series ID from link
+
         const seriesId = extractSeriesId(market.link)
         if (!seriesId) {
-          console.warn(`Could not extract series ID from link: ${market.link}`)
-          errors.push({
-            market_id: market.id,
-            market_name: market.name,
-            error: 'Could not extract series ID from market link'
-          })
+          errors.push({ market_id: market.id, market_name: market.name, error: 'Could not extract series ID from market link' })
           skippedCount++
           continue
         }
-
-        // Get series data and latest observation
-        const seriesData = await getSeriesDataAndLatestObservation(seriesId)
-        if (!seriesData) {
-          console.warn(`No series data found for ${seriesId}`)
-          errors.push({
-            market_id: market.id,
-            market_name: market.name,
-            series_id: seriesId,
-            error: 'No series data or observation found'
-          })
-          skippedCount++
-          continue
-        }
-
-        // Check if data is current for the close date
-        if (!isDataCurrentForCloseDate(seriesData.last_updated, market.close_date)) {
-          console.warn(`Series last_updated ${seriesData.last_updated} is before close date ${market.close_date}`)
-          errors.push({
-            market_id: market.id,
-            market_name: market.name,
-            series_id: seriesId,
-            last_updated: seriesData.last_updated,
-            close_date: market.close_date,
-            error: 'Series data was not updated on or after the close date'
-          })
-          skippedCount++
-          continue
-        }
-
-        // Validate target value
         if (market.target === null || market.target === undefined) {
-          console.warn(`Market ${market.id} has no target value`)
-          errors.push({
-            market_id: market.id,
-            market_name: market.name,
-            error: 'Market has no target value'
-          })
+          errors.push({ market_id: market.id, market_name: market.name, error: 'Market has no target value' })
           skippedCount++
           continue
         }
 
-        // Determine if actual value is higher than target
-        const actualValue = seriesData.observation.value
-        const targetValue = market.target
-        const isHigher = actualValue > targetValue
+        const decision = await decideFredResolution(fred, {
+          seriesId, closeDate: market.close_date, target: market.target, today: todayStr,
+        })
+        console.log(`Market ${market.id} (${seriesId}, close ${market.close_date}): ${JSON.stringify(decision)}`)
 
-        // Find the correct outcome
-        const outcomes = market.outcomes || []
-        if (outcomes.length < 2) {
-          console.warn(`Market ${market.id} doesn't have enough outcomes (expected at least 2)`)
-          errors.push({
-            market_id: market.id,
-            market_name: market.name,
-            error: 'Market does not have enough outcomes (expected Yes/No)'
-          })
-          skippedCount++
-          continue
-        }
-
-        // Find Yes/No outcomes
-        const yesOutcome = outcomes.find(o => o.name.toLowerCase() === 'yes')
-        const noOutcome = outcomes.find(o => o.name.toLowerCase() === 'no')
-
-        if (!yesOutcome || !noOutcome) {
-          console.warn(`Market ${market.id} doesn't have Yes/No outcomes`)
-          errors.push({
-            market_id: market.id,
-            market_name: market.name,
-            available_outcomes: outcomes.map(o => o.name),
-            error: 'Market does not have Yes/No outcomes'
-          })
-          skippedCount++
-          continue
-        }
-
-        // Select the winning outcome
-        const winningOutcome = isHigher ? yesOutcome : noOutcome
-
-        // Resolve the market
-        const resolutionResult = await resolveMarket(
-          market.id,
-          winningOutcome.id,
-          market.name,
-          actualValue,
-          targetValue,
-          isHigher
-        )
-
-        processedMarkets.push({
+        const report = {
           market_id: market.id,
           market_name: market.name,
+          market_status: market.status,
           series_id: seriesId,
           close_date: market.close_date,
-          last_updated: seriesData.last_updated,
-          observation_date: seriesData.observation.date,
-          actual_value: actualValue,
-          target_value: targetValue,
-          is_higher: isHigher,
-          winning_outcome: winningOutcome.name,
-          winning_outcome_id: winningOutcome.id,
-          resolution_result: resolutionResult,
-          status: resolutionResult.success ? 'resolved' : 'failed'
-        })
-
-        if (resolutionResult.success) {
-          resolvedCount++
-        } else {
-          errors.push({
-            market_id: market.id,
-            market_name: market.name,
-            error: resolutionResult.error
-          })
+          target_value: market.target,
+          decision,
         }
 
+        if (decision.action === 'wait') {
+          waitingCount++
+          processedMarkets.push({ ...report, status: 'waiting' })
+          continue
+        }
+
+        let result
+        if (decision.action === 'annul') {
+          result = await callMarketFunction('annul-market', { market_id: market.id })
+          if (result.success) annulledCount++
+        } else {
+          const outcome = (market.outcomes || []).find(o => o.name.toLowerCase() === decision.winner.toLowerCase())
+          if (!outcome) {
+            errors.push({ market_id: market.id, market_name: market.name, available_outcomes: (market.outcomes || []).map(o => o.name), error: 'Market does not have Yes/No outcomes' })
+            skippedCount++
+            continue
+          }
+          result = await callMarketFunction('resolve-market', { market_outcome_id: outcome.id })
+          if (result.success) resolvedCount++
+        }
+
+        processedMarkets.push({ ...report, result, status: result.success ? (decision.action === 'annul' ? 'annulled' : 'resolved') : 'failed' })
+        if (!result.success) {
+          errors.push({ market_id: market.id, market_name: market.name, error: result.error })
+        }
       } catch (error) {
         console.error(`Error processing market ${market.id}:`, error)
-        errors.push({
-          market_id: market.id,
-          market_name: market.name || 'Unknown',
-          error: error.message
-        })
+        errors.push({ market_id: market.id, market_name: market.name || 'Unknown', error: (error as Error).message })
         skippedCount++
       }
     }
@@ -373,6 +229,8 @@ serve(async (req) => {
         summary: {
           total_markets_checked: markets.length,
           markets_resolved: resolvedCount,
+          markets_annulled: annulledCount,
+          markets_waiting: waitingCount,
           markets_skipped: skippedCount,
           markets_failed: errors.length - skippedCount,
           processing_errors: errors.length
@@ -381,7 +239,7 @@ serve(async (req) => {
         processing_errors: errors,
         metadata: {
           timestamp: new Date().toISOString(),
-          function_version: "1.1",
+          function_version: "2.0",
           target_date: todayStr,
           specific_market_id: specificMarketId
         }
@@ -398,7 +256,7 @@ serve(async (req) => {
     return new Response(
       JSON.stringify({
         success: false,
-        error: error.message,
+        error: (error as Error).message,
         timestamp: new Date().toISOString()
       }, null, 2),
       {

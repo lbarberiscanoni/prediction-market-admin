@@ -121,3 +121,31 @@ Deno.test({
     assertEquals(res.status, 401);
   },
 });
+
+// 5. FRED resolver: dry-run REPLAYS settled TERMCBCCALLNS markets through the
+//    deployed resolver against real FRED/ALFRED data. Releases that carried new
+//    data must reproduce their historical outcome; releases that carried none
+//    (quarterly series on a monthly release) must annul — #183/#202/#234 were
+//    wrongly settled on the next quarter's value by the old `last_updated` check.
+Deno.test({
+  name: "resolve-fred-markets: dry-run replay resolves real releases, annuls empty ones",
+  ignore: !ready,
+  fn: async () => {
+    const expected: Record<number, string> = {
+      115: "resolve:Yes", // Oct 7 release, 21.39 > 21.16
+      164: "resolve:No", //  Jan 8 release, 20.97 <= 21.39
+      252: "resolve:No", //  Jul 8 release, 20.94 <= 21
+      183: "annul", //       Feb 6: no new data
+      202: "annul", //       Mar 6: no new data
+      234: "annul", //       Jun 5: no new data
+      231: "resolve:Yes", // BBKMGDP Jun 1: release revised the latest point, 2.49 > 2.10
+    };
+    for (const [id, want] of Object.entries(expected)) {
+      const r = await invoke("resolve-fred-markets", { dry_run: true, market_id: Number(id) });
+      const m = (r.processed_markets as Array<{ decision: { action: string; winner?: string } }>)?.[0];
+      assertExists(m, `market ${id}: unexpected response ${JSON.stringify(r)}`);
+      const got = m.decision.action === "resolve" ? `resolve:${m.decision.winner}` : m.decision.action;
+      assertEquals(got, want, `market ${id}`);
+    }
+  },
+});
