@@ -9,6 +9,7 @@
     "test:refill": "deno test --allow-env --allow-net --allow-read supabase/tests/refill_e2e_test.ts",
     "test:integration": "deno test --allow-env --allow-net supabase/tests/pipeline_integration_test.ts",
     "test:all": "deno task test && deno task test:resolution",
-    "deploy": "bash scripts/deploy-functions.sh"
+    "deploy": "bash scripts/deploy-functions.sh",
+    "test:trade": "deno test --allow-env --allow-net --allow-read supabase/tests/trade_security_e2e_test.ts"
   }
 }

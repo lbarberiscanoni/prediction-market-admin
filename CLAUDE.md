@@ -445,9 +445,24 @@ re-run in the same period is a no-op). It runs on pg_cron right after each
 auto-pay cycle. A refilled player is exactly where a new signup starts, and the
 leaderboard ranks on trade returns, so refills never count toward bonuses.
 Execute is revoked from `anon`/`authenticated`, so players can't call it through
-the API. E2E: `deno task test:refill`. ⚠️ Separate pre-existing hole: `profiles` RLS lets a
-player UPDATE their own row, balance included (the trading app writes balances
-client-side), so a player can set their own balance through the API.
+the API. E2E: `deno task test:refill`.
+
+**Trading is server-side (2026-10-18).** Both apps' `TradeForm` call the
+SECURITY DEFINER RPC `public.place_trade(market, outcome, 'buy'|'sell', amount)`
+(migration `20261018000000`): it checks login, ToS consent, `status='open'`,
+balance / shares owned, prices the trade (same fixed-price + CPMM math the
+browser used to do) and writes the prediction, balance, both outcome pools and
+`token_pool` in one locked transaction. Before this, the browser did those
+writes itself, so RLS let any player set their own balance, forge predictions
+(which resolution then pays) or move prices. Migration `20261018000100` closes
+that: trigger `guard_profile_money_columns` rejects `balance`/`is_admin`
+changes from `anon`/`authenticated` (trusted code — service role, postgres,
+SECURITY DEFINER functions — is unaffected) and coerces client profile inserts
+to defaults; players lost INSERT on `predictions` and UPDATE on
+`outcomes`/`markets`; `increment_balance` is service-role only. Players can
+still edit their own username / payment / notification / consent fields.
+E2E (player JWT against the live API): `deno task test:trade`; UI flow:
+`e2e/trade.spec.ts` in the public app.
 
 Leaderboard-bonus payout logic is likewise pure + unit-tested (TDD) in
 [`_shared/leaderboard-payouts/cycle.ts`](supabase/functions/_shared/leaderboard-payouts/cycle.ts):
