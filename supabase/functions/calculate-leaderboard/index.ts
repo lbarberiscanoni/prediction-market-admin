@@ -1,6 +1,7 @@
 // supabase/functions/calculate-leaderboard/index.ts
 import { serve } from "https://deno.land/std@0.177.0/http/server.ts"
 import { createClient } from 'https://esm.sh/@supabase/supabase-js@2.45.4'
+import { rankLeaderboard } from '../_shared/leaderboard-payouts/ranking.ts'
 
 const corsHeaders = {
   'Access-Control-Allow-Origin': '*',
@@ -307,18 +308,8 @@ serve(async (req) => {
       }
     }
 
-    // Filter users with activity (total bought amount > 0)
-    const activeUsers = leaderboardResults.filter(
-      entry => entry.total_bought_amount > 0
-    )
-
-    // Sort by total profit/loss (descending)
-    const sortedData = activeUsers.sort((a, b) => b.total_profit_loss - a.total_profit_loss)
-
-    // Add position numbers
-    sortedData.forEach((entry, index) => {
-      entry.position = index + 1
-    })
+    // Drop inactive users, rank by return % (min stake applies), set positions
+    const sortedData = rankLeaderboard(leaderboardResults)
 
     console.log(`Calculated leaderboard for ${sortedData.length} active users across ${eligibleMarkets.length} eligible markets`)
 

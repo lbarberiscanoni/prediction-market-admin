@@ -54,7 +54,7 @@ deployed version as truth.
 | `resolve-fred-markets` | For `closed` FRED markets, finds the FRED vintage published in the market's release window (`close_date` −2d…+7d) that changed the latest data point and compares *that release's* value to `target` → resolve Yes/No; no such release once the window passes → **annul** (e.g. quarterly TERMCBCCALLNS on the monthly G.19 release). Logic: [`_shared/fred-resolution/decide.ts`](supabase/functions/_shared/fred-resolution/decide.ts). `{dry_run, market_id}` replays any market regardless of status. | `markets` (→`resolved`/`annulled`), payouts | **pg_cron `30 6 * * *`** (`daily-fred-resolution`) |
 | `resolve-market` | Manual resolution of one market by winning outcome; computes net shares & pays winners. | `markets` (→`resolved`), `payouts` | Admin UI / manual |
 | `annul-market` | Voids a market; refunds all participants their net position. | `markets` (→`annulled`), `payouts` | Admin UI / manual |
-| `calculate-leaderboard` | Ranks users by P&L over eligible markets (open + recently-closed/resolved/annulled). | `leaderboards` | **pg_cron `45 6 * * *`** (`daily-leaderboard-calculation`) |
+| `calculate-leaderboard` | Ranks users by **return %** (profit ÷ amount bought) over eligible markets (open + recently-closed/resolved/annulled); players who bought < 50 tokens rank below all qualifiers. Ranking: [`_shared/leaderboard-payouts/ranking.ts`](supabase/functions/_shared/leaderboard-payouts/ranking.ts). Before 2026-10 it ranked by raw profit, which let bankroll size buy rank. | `leaderboards` | **pg_cron `45 6 * * *`** (`daily-leaderboard-calculation`) |
 | `market-notification` | Emails users (Resend) announcing newly created markets. Rate-limited. | — (sends email) | `get-fred-data` after creating markets |
 | `auto-pay-cycle` | **Fully automated leaderboard-bonus payout** (replaced the manual approve-and-send UI, now deleted). Recomputes the current cycle live from the latest leaderboard (ranking/eligibility logic in `_shared/leaderboard-payouts/cycle.ts`), sends eligible PayPal payouts via the Payouts API, writes the `payments` ledger, marks `cycle_payouts` sent. Guardrails: `x-cron-secret`/service-role auth (NOT anon), per-leaderboard idempotency, `$100`/cycle spend cap (`AUTO_PAY_MAX_CYCLE_USD`), `{dry_run}`. Cadence is set by the cron SCHEDULE, not a timer in the function. | `payments`, `cycle_payouts` | **pg_cron twice a month** (`auto-pay-cycle-midmonth` `20 7 15 * *` + `auto-pay-cycle-endmonth` last day of month) |
 | `stage-cycle-payout` | Computes leaderboard-rank bonus batch, STAGES it as `pending_approval` (moves no money). ~14-day cadence. | `cycle_payouts` | ⚠️ **Not scheduled** (superseded by `auto-pay-cycle` 2026-07-13; cron job removed). Still callable manually. |
@@ -70,7 +70,7 @@ deployed version as truth.
 ### Scheduling — pg_cron is the source of truth (NOT this repo)
 All periodic work runs from **Supabase `pg_cron`**, configured in the database
 (not in git). Query it with `select jobid, jobname, schedule, active, command
-from cron.job;`. As of 2026-09-29 there are 12 active jobs (all times UTC):
+from cron.job;`. As of 2026-10-18 there are 14 active jobs (all times UTC):
 
 | jobid | jobname | schedule | function |
 |---|---|---|---|
@@ -86,6 +86,7 @@ from cron.job;`. As of 2026-09-29 there are 12 active jobs (all times UTC):
 | — | `resolve-event-markets-daily` | `0 9 * * *` | `resolve-event-markets` (watcher: check live markets, auto-resolve/annul, batch 8) |
 | 29 | `pipeline-health-daily` | `30 9 * * *` | `pipeline-health` (emails an alert if anything above failed or stalled) |
 | 19 | `reconcile-payouts-hourly` | `0 * * * *` | `reconcile-payouts` |
+| 30 / 31 | `refill-balances-midmonth` / `-endmonth` | `25 7 15 * *` / `25 7 28-31 * *` (last-day guard) | SQL `public.refill_balances()`, no edge function (see "Balance refill") |
 
 The daily chain is intentional: FRED create (06:00) → resolve (06:30) →
 leaderboard (06:45) → close (07:00). The leaderboard-bonus **auto-pay runs twice
@@ -434,6 +435,19 @@ path) — no more copy-pasted payout loops. All three of `resolve-market`,
 `annul-market`, `resolve-fred-markets` accept `{dry_run:true}` to simulate
 without writing (see memory `pipeline-dry-run-verification`; `resolve-fred`'s is
 shallow — picks the winner, doesn't simulate payouts).
+
+**Balance refill (bankruptcy floor).** Play-money balances never refilled
+before 2026-10, so broke players were locked out for good. Now the SQL function
+`public.refill_balances(period, floor=100, target=1000, dry_run)` (migration
+`20261017000000`) tops anyone under 100 tokens back up to 1000, once per period,
+logging each credit to `balance_refills` (unique `(period, profile_id)` = a
+re-run in the same period is a no-op). It runs on pg_cron right after each
+auto-pay cycle. A refilled player is exactly where a new signup starts, and the
+leaderboard ranks on trade returns, so refills never count toward bonuses.
+Execute is revoked from `anon`/`authenticated`, so players can't call it through
+the API. E2E: `deno task test:refill`. ⚠️ Separate pre-existing hole: `profiles` RLS lets a
+player UPDATE their own row, balance included (the trading app writes balances
+client-side), so a player can set their own balance through the API.
 
 Leaderboard-bonus payout logic is likewise pure + unit-tested (TDD) in
 [`_shared/leaderboard-payouts/cycle.ts`](supabase/functions/_shared/leaderboard-payouts/cycle.ts):
