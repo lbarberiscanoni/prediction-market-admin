@@ -3,7 +3,7 @@
 import { useEffect, useState, useCallback } from "react";
 import { useParams } from "next/navigation";
 import supabase from "@/lib/supabase/createClient";
-import { addPrediction } from "@/lib/predictions";
+import { placeTrade } from "@/lib/predictions";
 import { fixedPriceMarketMaker, cpmm_update } from "@/lib/marketMakers";
 import { User } from "@supabase/supabase-js";
 import {
@@ -430,62 +430,9 @@ export default function TradeForm() {
     }
 
     try {
-      const otherAnswer = answers.find((a) => a.id !== selectedAnswer.id)!;
-      const totalTokens = selectedAnswer.tokens + otherAnswer.tokens;
-      const currentOdds = selectedAnswer.tokens / totalTokens;
-      
-      // Calculate shares and new token distributions
-      const sharesPurchased = fixedPriceMarketMaker(
-        selectedAnswer.tokens,
-        otherAnswer.tokens,
-        totalPrice
-      );
-
-      const [newOutcome1Tokens, newOutcome2Tokens] = cpmm_update(
-        selectedAnswer.tokens,
-        otherAnswer.tokens,
-        totalPrice
-      );
-
-      // Final safety check
-      if (newOutcome1Tokens < 0 || newOutcome2Tokens < 0) {
-        throw new Error("Trade would result in negative token pools.");
-      }
-
-      // Create prediction (this will also update user balance)
-      await addPrediction({
-        user_id: user.id,
-        market_id: market.id,
-        outcome_id: selectedAnswer.id,
-        shares_amt: sharesPurchased,
-        market_odds: currentOdds,
-        trade_value: -totalPrice,
-        trade_type: 'buy'
-      });
-
-      // Update token pools
-      const { error: updateError1 } = await supabase
-        .from("outcomes")
-        .update({ tokens: newOutcome1Tokens })
-        .eq("id", selectedAnswer.id);
-      if (updateError1) throw new Error(updateError1.message);
-
-      const { error: updateError2 } = await supabase
-        .from("outcomes")
-        .update({ tokens: newOutcome2Tokens })
-        .eq("id", otherAnswer.id);
-      if (updateError2) throw new Error(updateError2.message);
-
-      // Update market token pool
-      const newMarketTokenPool = newOutcome1Tokens + newOutcome2Tokens;
-      const { error: marketUpdateError } = await supabase
-        .from("markets")
-        .update({ token_pool: newMarketTokenPool })
-        .eq("id", market.id);
-
-      if (marketUpdateError) {
-        throw new Error(`Failed to update market token_pool: ${marketUpdateError.message}`);
-      }
+      // The server prices the trade and moves balance + pools atomically.
+      const result = await placeTrade(market.id, selectedAnswer.id, 'buy', totalPrice);
+      const sharesPurchased = result.shares;
 
       setSuccess(
         `Purchase successful! You spent ${formatCurrency(totalPrice)} and received ${sharesPurchased.toFixed(2)} shares.`
@@ -540,52 +487,10 @@ export default function TradeForm() {
     }
 
     try {
-      const otherAnswer = answers.find((a) => a.id !== selectedAnswer.id)!;
-      const totalTokens = selectedAnswer.tokens + otherAnswer.tokens;
-      const currentOdds = selectedAnswer.tokens / totalTokens;
-      
-      const receivedAmount = sellShares * currentOdds;
-      
-      const [new_other_tokens, new_selected_tokens] = cpmm_update(
-        otherAnswer.tokens,
-        selectedAnswer.tokens,
-        receivedAmount
-      );
-      
-      await addPrediction({
-        user_id: user.id,
-        market_id: market.id,
-        outcome_id: selectedAnswer.id,
-        shares_amt: sellShares,
-        market_odds: currentOdds,
-        trade_value: receivedAmount,
-        trade_type: 'sell'
-      });
-    
-      const { error: updateError1 } = await supabase
-        .from("outcomes")
-        .update({ tokens: new_selected_tokens })
-        .eq("id", selectedAnswer.id);
-      
-      if (updateError1) throw new Error(`Failed to update outcome tokens: ${updateError1.message}`);
-      
-      const { error: updateError2 } = await supabase
-        .from("outcomes")
-        .update({ tokens: new_other_tokens })
-        .eq("id", otherAnswer.id);
-        
-      if (updateError2) throw new Error(`Failed to update opposing outcome tokens: ${updateError2.message}`);
-      
-      const newMarketTokenPool = new_selected_tokens + new_other_tokens;
-      const { error: marketUpdateError } = await supabase
-        .from("markets")
-        .update({ token_pool: newMarketTokenPool })
-        .eq("id", market.id);
-      
-      if (marketUpdateError) {
-        throw new Error(`Failed to update market token_pool: ${marketUpdateError.message}`);
-      }
-    
+      // The server prices the sale and moves balance + pools atomically.
+      const result = await placeTrade(market.id, selectedAnswer.id, 'sell', sellShares);
+      const receivedAmount = result.trade_value;
+
       setSuccess(`Successfully sold ${formatShares(sellShares).toFixed(2)} shares of ${selectedAnswer.name} and received ${formatCurrency(receivedAmount)}`);
       
       // Refresh data
