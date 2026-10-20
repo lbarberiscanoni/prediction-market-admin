@@ -1,0 +1,122 @@
+[
+  {
+    "name": "Will Democrats win control of the U.S. Senate in the 2026 midterms?",
+    "description": "Yes if Democrats, counting independents who caucus with them, hold 51 or more Senate seats when the new Congress convenes Jan 3, 2027. A 50-50 split resolves No (VP Vance breaks ties). Currently 53 R - 47 D.\n\nResolves on the Associated Press race call. If AP never calls the race, resolves on the state's certified result. Trading closes the morning of election day (Nov 3). Annulled if the election is cancelled or postponed past 2027.",
+    "link": "https://en.wikipedia.org/wiki/2026_United_States_Senate_elections",
+    "close_date": "2026-11-03",
+    "tags": [
+      "Politics",
+      "Midterms 2026"
+    ]
+  },
+  {
+    "name": "Will Democrats win control of the U.S. House in the 2026 midterms?",
+    "description": "Yes if Democrats win 218 or more of the 435 House seats in the Nov 3, 2026 election, counted from the final AP seat tally. Currently 218 R - 214 D - 1 I, 2 vacant.\n\nResolves on the Associated Press race call. If AP never calls the race, resolves on the state's certified result. Trading closes the morning of election day (Nov 3). Annulled if the election is cancelled or postponed past 2027.",
+    "link": "https://en.wikipedia.org/wiki/2026_United_States_House_of_Representatives_elections",
+    "close_date": "2026-11-03",
+    "tags": [
+      "Politics",
+      "Midterms 2026"
+    ]
+  },
+  {
+    "name": "Will Democrats win both the House and the Senate in the 2026 midterms?",
+    "description": "Yes only if both of the previous two conditions hold: Democrats win 218+ House seats AND hold 51+ Senate seats (incl. caucusing independents). Anything else resolves No.\n\nResolves on the Associated Press race call. If AP never calls the race, resolves on the state's certified result. Trading closes the morning of election day (Nov 3). Annulled if the election is cancelled or postponed past 2027.",
+    "link": "https://en.wikipedia.org/wiki/2026_United_States_elections",
+    "close_date": "2026-11-03",
+    "tags": [
+      "Politics",
+      "Midterms 2026"
+    ]
+  },
+  {
+    "name": "Will Democrats win 230 or more House seats in the 2026 midterms?",
+    "description": "Yes if Democrats win at least 230 of 435 House seats in the final AP seat tally. Cook Political Report's Oct 16 outlook was D 224-234.\n\nResolves on the Associated Press race call. If AP never calls the race, resolves on the state's certified result. Trading closes the morning of election day (Nov 3). Annulled if the election is cancelled or postponed past 2027.",
+    "link": "https://en.wikipedia.org/wiki/2026_United_States_House_of_Representatives_elections",
+    "close_date": "2026-11-03",
+    "tags": [
+      "Politics",
+      "Midterms 2026"
+    ]
+  },
+  {
+    "name": "Will Jon Ossoff win re-election to the U.S. Senate in Georgia?",
+    "description": "Democrat Jon Ossoff (incumbent) vs. Republican Mike Collins. Georgia requires 50%: if no one clears it, the market stays open-for-resolution until the Dec 1, 2026 runoff and resolves on its winner.\n\nResolves on the Associated Press race call. If AP never calls the race, resolves on the state's certified result. Trading closes the morning of election day (Nov 3). Annulled if the election is cancelled or postponed past 2027.",
+    "link": "https://en.wikipedia.org/wiki/2026_United_States_Senate_election_in_Georgia",
+    "close_date": "2026-11-03",
+    "tags": [
+      "Politics",
+      "Midterms 2026"
+    ]
+  },
+  {
+    "name": "Will Susan Collins win re-election to the U.S. Senate in Maine?",
+    "description": "Republican Susan Collins (incumbent) vs. Democrat Troy Jackson. Maine uses ranked-choice voting; resolves on the final ranked-choice tabulation.\n\nResolves on the Associated Press race call. If AP never calls the race, resolves on the state's certified result. Trading closes the morning of election day (Nov 3). Annulled if the election is cancelled or postponed past 2027.",
+    "link": "https://en.wikipedia.org/wiki/2026_United_States_Senate_election_in_Maine",
+    "close_date": "2026-11-03",
+    "tags": [
+      "Politics",
+      "Midterms 2026"
+    ]
+  },
+  {
+    "name": "Will Roy Cooper win the U.S. Senate race in North Carolina?",
+    "description": "Open seat (Thom Tillis retiring). Democrat Roy Cooper vs. Republican Michael Whatley.\n\nResolves on the Associated Press race call. If AP never calls the race, resolves on the state's certified result. Trading closes the morning of election day (Nov 3). Annulled if the election is cancelled or postponed past 2027.",
+    "link": "https://en.wikipedia.org/wiki/2026_United_States_Senate_election_in_North_Carolina",
+    "close_date": "2026-11-03",
+    "tags": [
+      "Politics",
+      "Midterms 2026"
+    ]
+  },
+  {
+    "name": "Will Sherrod Brown win the U.S. Senate special election in Ohio?",
+    "description": "Special election for the seat JD Vance vacated. Democrat Sherrod Brown vs. Republican Jon Husted (appointed incumbent).\n\nResolves on the Associated Press race call. If AP never calls the race, resolves on the state's certified result. Trading closes the morning of election day (Nov 3). Annulled if the election is cancelled or postponed past 2027.",
+    "link": "https://en.wikipedia.org/wiki/2026_United_States_Senate_special_election_in_Ohio",
+    "close_date": "2026-11-03",
+    "tags": [
+      "Politics",
+      "Midterms 2026"
+    ]
+  },
+  {
+    "name": "Will James Talarico win the U.S. Senate race in Texas?",
+    "description": "Open seat (John Cornyn lost the GOP runoff). Democrat James Talarico vs. Republican Ken Paxton.\n\nResolves on the Associated Press race call. If AP never calls the race, resolves on the state's certified result. Trading closes the morning of election day (Nov 3). Annulled if the election is cancelled or postponed past 2027.",
+    "link": "https://en.wikipedia.org/wiki/2026_United_States_Senate_election_in_Texas",
+    "close_date": "2026-11-03",
+    "tags": [
+      "Politics",
+      "Midterms 2026"
+    ]
+  },
+  {
+    "name": "Will Josh Turek win the U.S. Senate race in Iowa?",
+    "description": "Open seat (Joni Ernst retiring). Democrat Josh Turek vs. Republican Ashley Hinson.\n\nResolves on the Associated Press race call. If AP never calls the race, resolves on the state's certified result. Trading closes the morning of election day (Nov 3). Annulled if the election is cancelled or postponed past 2027.",
+    "link": "https://en.wikipedia.org/wiki/2026_United_States_Senate_election_in_Iowa",
+    "close_date": "2026-11-03",
+    "tags": [
+      "Politics",
+      "Midterms 2026"
+    ]
+  },
+  {
+    "name": "Will Katie Hobbs win re-election as Governor of Arizona?",
+    "description": "Democrat Katie Hobbs (incumbent) vs. Republican Andy Biggs.\n\nResolves on the Associated Press race call. If AP never calls the race, resolves on the state's certified result. Trading closes the morning of election day (Nov 3). Annulled if the election is cancelled or postponed past 2027.",
+    "link": "https://en.wikipedia.org/wiki/2026_Arizona_gubernatorial_election",
+    "close_date": "2026-11-03",
+    "tags": [
+      "Politics",
+      "Midterms 2026"
+    ]
+  },
+  {
+    "name": "Will Keisha Lance Bottoms win the Georgia governor race?",
+    "description": "Open seat (Brian Kemp term-limited). Democrat Keisha Lance Bottoms vs. Republican Rick Jackson. If no one clears 50%, resolves on the winner of the Dec 1, 2026 runoff.\n\nResolves on the Associated Press race call. If AP never calls the race, resolves on the state's certified result. Trading closes the morning of election day (Nov 3). Annulled if the election is cancelled or postponed past 2027.",
+    "link": "https://en.wikipedia.org/wiki/2026_Georgia_gubernatorial_election",
+    "close_date": "2026-11-03",
+    "tags": [
+      "Politics",
+      "Midterms 2026"
+    ]
+  }
+]
